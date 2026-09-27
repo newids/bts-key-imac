@@ -9,16 +9,22 @@ import os
 /// - The SDP record is published once for the life of the app. Publishing it makes
 ///   bluetoothd route the HID PSMs (0x11/0x13) to this process; removing and
 ///   re-publishing it leaves the PSMs registered and the next publish fails.
-/// - The host (iMac) reconnects to its bonded keyboard on its own. Those inbound
-///   channels are accepted here; without a published record, macOS' own HID host
-///   grabs them and treats the iMac as an input device.
-/// - This side can also open both channels outbound to a bonded host.
+/// - Only outbound links work. When the host opens the channels itself, IOBluetooth
+///   either never surfaces them to this process (idle) or surfaces channel objects that
+///   never deliver data (while an outbound attempt is in flight), so the host's request
+///   times out after 3 s either way. No channel or connect notifications are registered (see
+///   `start()`); the host's baseband link is detected by polling and reported to the delegate
+///   as a cue to connect outbound.
+/// - Opening channels right after `connectionComplete` is safe; `isConnected()` can lag
+///   or stay false for some pairing records and must not gate it.
 ///
 /// IOBluetooth only works on the thread whose run loop services it (objects used
 /// from another thread fail with kIOReturnError), so everything runs on main.
 public final class ClassicHIDTransport: NSObject, HIDTransport {
     public weak var delegate: HIDTransportDelegate?
-    public var targetAddress: String?
+    public var targetAddress: String? {
+        didSet { if targetAddress != oldValue { wasTargetLinkUp = false } }   // edge detector is per target
+    }
     public var isPaused = false
 
     private static let connectTimeout: TimeInterval = 15
@@ -35,7 +41,9 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     private static let publishRetryInterval: TimeInterval = 1
     private static let publishMaxAttempts = 30
     private var hasNotifiedConnect = false
-    private var incomingNotifications: [IOBluetoothUserNotification] = []
+    private var hostLinkPoll: Timer?
+    private var wasTargetLinkUp = false
+    private static let hostLinkPollInterval: TimeInterval = 2
     private var device: IOBluetoothDevice?
     private var controlChannel: IOBluetoothL2CAPChannel?
     private var interruptChannel: IOBluetoothL2CAPChannel?
@@ -46,7 +54,6 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     private var graceWork: DispatchWorkItem?
     private var isResettingLink = false
     private var resetPoll: DispatchWorkItem?
-    private var linkStatePoll: DispatchWorkItem?
     private static let resetPollInterval: TimeInterval = 0.25
     private static let resetMaxPolls = 20
     private var aclDisconnectNotification: IOBluetoothUserNotification?
@@ -67,20 +74,12 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     public func start() {
         dispatchPrecondition(condition: .onQueue(.main))
         ensurePublished()
-        guard incomingNotifications.isEmpty else { return }
-        for psm in [SDPRecordBuilder.controlPSM, SDPRecordBuilder.interruptPSM] {
-            if let note = IOBluetoothL2CAPChannel.register(
-                forChannelOpenNotifications: self,
-                selector: #selector(incomingChannelOpened(_:channel:)),
-                withPSM: BluetoothL2CAPPSM(psm),
-                direction: kIOBluetoothUserNotificationChannelDirectionIncoming
-            ) {
-                incomingNotifications.append(note)
-            } else {
-                log.error("could not listen for incoming PSM \(psm, privacy: .public)")
-            }
-        }
-        log.notice("listening for host-initiated connections")
+        // Deliberately no IOBluetooth notification registrations here. Registering for connect
+        // notifications makes this process' device objects report isConnected() == false forever
+        // and every channel open fail (verified 2026-09-27); channel-open notifications never
+        // deliver data. Host-initiated links are detected by polling the target instead.
+        startHostLinkPoll()
+        log.notice("publishing HID service; watching the target for host-initiated links")
     }
 
     public func connect() {
@@ -134,8 +133,8 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         closeChannels()
         publishRetry?.cancel()
         publishRetry = nil
-        incomingNotifications.forEach { $0.unregister() }
-        incomingNotifications = []
+        hostLinkPoll?.invalidate()
+        hostLinkPoll = nil
         serviceRecord?.remove()
         serviceRecord = nil
     }
@@ -186,32 +185,35 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         guard isOutboundInFlight, let current = self.device,
               device?.addressString == current.addressString else { return }
         guard status == kIOReturnSuccess else { return fail(.connectionFailed(code: status)) }
-        // isConnected() lags the completion; opening before it agrees makes IOBluetooth wait
-        // synchronously on the main thread (seen as a 9 s stall), so poll briefly instead.
-        waitForLinkState(remaining: Self.linkStatePolls)
+        // A successful completion is the reliable "link up" signal: isConnected() lags it and
+        // stays false altogether for some pairing records. Opening now was verified stall-free.
+        openOutbound(psm: SDPRecordBuilder.controlPSM, linkKnownUp: true)
     }
 
-    private static let linkStatePollInterval: TimeInterval = 0.1
-    private static let linkStatePolls = 30
-
-    private func waitForLinkState(remaining: Int) {
-        guard isOutboundInFlight, let device else { return }
-        if device.isConnected() {
-            openOutbound(psm: SDPRecordBuilder.controlPSM)
-            return
-        }
-        guard remaining > 0 else { return fail(.linkClosed) }
-        let work = DispatchWorkItem { [weak self] in self?.waitForLinkState(remaining: remaining - 1) }
-        linkStatePoll = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.linkStatePollInterval, execute: work)
+    /// Host-initiated baseband link: the cue that the host wants its keyboard back. The target's
+    /// isConnected() flips to true when the host pages us (it only lags for links *we* open).
+    private func startHostLinkPoll() {
+        guard hostLinkPoll == nil else { return }
+        let timer = Timer(timeInterval: Self.hostLinkPollInterval, repeats: true) { [weak self] _ in self?.pollHostLink() }
+        timer.tolerance = 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        hostLinkPoll = timer
     }
 
-    private func openOutbound(psm: UInt16) {
+    private func pollHostLink() {
+        guard let address = targetAddress, let target = IOBluetoothDevice(addressString: address) else { return }
+        let isUp = target.isConnected()
+        defer { wasTargetLinkUp = isUp }
+        guard isUp, !wasTargetLinkUp, !isOutboundInFlight, !isConnected, !isPaused, target.isPaired() else { return }
+        log.notice("host \(address, privacy: .public) brought up a link")
+        delegate?.transportHostCameIntoRange(self, hostAddress: address, hostName: target.name)
+    }
+
+    private func openOutbound(psm: UInt16, linkKnownUp: Bool = false) {
         guard isOutboundInFlight, let device else { return }
-        // Never ask for a channel without a live baseband link: IOBluetooth then re-pages the
-        // host and waits for the channel *synchronously on the main thread*, freezing the app
-        // for as long as the host stays silent. Seen in a sample of the app.
-        guard device.isConnected() else { return fail(.linkClosed) }
+        // Without a live baseband link IOBluetooth re-pages the host and waits synchronously on
+        // the main thread. The connection-complete path is exempt (the link is up by definition).
+        guard linkKnownUp || device.isConnected() else { return fail(.linkClosed) }
         var channel: IOBluetoothL2CAPChannel?
         let status = device.openL2CAPChannelAsync(&channel, withPSM: BluetoothL2CAPPSM(psm), delegate: self)
         guard status == kIOReturnSuccess, let channel else {
@@ -220,54 +222,6 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         adopt(channel)
     }
 
-    // MARK: - Inbound
-
-    @objc private func incomingChannelOpened(_ notification: IOBluetoothUserNotification, channel: IOBluetoothL2CAPChannel) {
-        let address = channel.device?.addressString ?? "?"
-        let isPaired = channel.device?.isPaired() ?? false
-        guard InboundPolicy.shouldAccept(isPaired: isPaired, isPaused: isPaused) else {
-            log.notice("refusing host-initiated PSM \(channel.psm, privacy: .public) from \(address, privacy: .public) (paired: \(isPaired, privacy: .public), paused: \(self.isPaused, privacy: .public))")
-            channel.close()
-            return
-        }
-        if isOutboundInFlight, !InboundPolicy.isSameHost(targetAddress, address) {
-            // The user asked for a specific iMac; another bonded host must not hijack that attempt.
-            log.notice("refusing PSM \(channel.psm, privacy: .public) from \(address, privacy: .public) while connecting to \(self.targetAddress ?? "?", privacy: .public)")
-            channel.close()
-            return
-        }
-        if let current = device, !InboundPolicy.isSameHost(current.addressString, address), channel.psm != SDPRecordBuilder.controlPSM {
-            log.notice("refusing PSM \(channel.psm, privacy: .public) from \(address, privacy: .public): control channel came from another host")
-            channel.close()
-            return
-        }
-        guard !isConnected else {
-            // A healthy link is never torn down by a stray open; a dead link reports l2capChannelClosed first.
-            log.info("refusing extra PSM \(channel.psm, privacy: .public): link already up")
-            channel.close()
-            return
-        }
-        log.notice("host-initiated PSM \(channel.psm, privacy: .public) from \(address, privacy: .public)")
-        if channel.psm == SDPRecordBuilder.controlPSM {
-            // The host is (re)building the link: drop any half-open outbound attempt and follow its lead.
-            closeChannels()
-        }
-        if isResettingLink {
-            // The host came to us while we were dropping the stale link: follow the host instead.
-            isResettingLink = false
-            resetPoll?.cancel()
-            resetPoll = nil
-        }
-        if device == nil, let host = channel.device {
-            device = host
-            watchBasebandLink(of: host)
-        }
-        if watchdog == nil { armWatchdog() }
-        channel.setDelegate(self)
-        adopt(channel)
-        openPSMs.insert(UInt16(channel.psm))
-        completeIfReady()
-    }
 
     /// Fails fast when the baseband link drops instead of waiting for the watchdog.
     private func watchBasebandLink(of device: IOBluetoothDevice) {
@@ -369,8 +323,6 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         graceWork = nil
         resetPoll?.cancel()
         resetPoll = nil
-        linkStatePoll?.cancel()
-        linkStatePoll = nil
         isResettingLink = false
         aclDisconnectNotification?.unregister()
         aclDisconnectNotification = nil
@@ -448,7 +400,9 @@ extension ClassicHIDTransport: IOBluetoothL2CAPChannelDelegate {
     }
 
     public func l2capChannelData(_ channel: IOBluetoothL2CAPChannel!, data dataPointer: UnsafeMutableRawPointer!, length dataLength: Int) {
-        guard role(of: channel) == .control, let control = controlChannel else { return }
+        let detectedRole = role(of: channel)
+        log.debug("data \(dataLength, privacy: .public)B on PSM \(channel.psm, privacy: .public) from \(channel.device?.addressString ?? "?", privacy: .public) role=\(String(describing: detectedRole), privacy: .public)")
+        guard detectedRole == .control, let control = controlChannel else { return }
         let bytes = [UInt8](UnsafeRawBufferPointer(start: dataPointer, count: dataLength))
         handleControlMessage(bytes, on: control)
     }

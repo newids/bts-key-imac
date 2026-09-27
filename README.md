@@ -33,7 +33,7 @@ MacBook을 iMac의 **블루투스 키보드·트랙패드**로 만드는 macOS �
 
 ## 동작 원리
 
-MacBook이 Bluetooth Classic HID(키보드+마우스 조합 장치)를 흉내 냅니다. IOBluetooth로 SDP 레코드를 게시하고, iMac이 결합된 키보드에 하는 것처럼 L2CAP 제어·인터럽트 채널을 열어 오면 받아들입니다. 키 입력은 CGEvent 탭으로 가로채 USB HID 리포트로 바꿔 인터럽트 채널로 보냅니다. 왜 이 설계인지, 무엇을 시험해 봤는지는 [docs/analysis-and-design.md](docs/analysis-and-design.md)와 [docs/connection-audit.md](docs/connection-audit.md)에 있습니다.
+MacBook이 Bluetooth Classic HID(키보드+마우스 조합 장치)를 흉내 냅니다. IOBluetooth로 SDP 레코드를 게시하고, 결합된 iMac에 L2CAP 제어·인터럽트 채널을 엽니다. iMac이 먼저 링크를 올리면(잠자기 복귀 등) 그 신호를 받아 앱이 몇 초 안에 연결합니다. 키 입력은 CGEvent 탭으로 가로채 USB HID 리포트로 바꿔 인터럽트 채널로 보냅니다. 왜 이 설계인지, 무엇을 시험해 봤는지는 [docs/analysis-and-design.md](docs/analysis-and-design.md)와 [docs/connection-audit.md](docs/connection-audit.md)에 있습니다.
 
 ## 개발
 
@@ -61,6 +61,7 @@ swift build && swift test          # 라이브러리 빌드와 단위 테스트
 | 2026-09-27 | 배포 패키징(아이콘·DMG·서명/공증 훅·로그인 시 자동 실행), 첫 실행 안내, About/도움말/지원 메뉴, 기기 목록. v0.1.0. |
 | 2026-09-27 | v0.1.1: 연결 시도 중 앱이 멈추면 MacBook 전체 입력이 멈추던 문제 수정(이벤트 탭을 전용 스레드로 분리), 채널 열기 전 링크 상태 대기, 자동 재시도 5회 제한. |
 | 2026-09-27 | v0.1.2: 다른 iMac으로 옮기는 표준 절차(새 페어링 자동 감지·채택, 해제된 페어링 즉시 중단), 자동 재시도 3회 후 '지금 다시 연결', 기기 이름 표시 개선, 메뉴 활성화 오류 수정. GitHub Pages 사이트. |
+| 2026-09-27 | v0.1.3: 새 iMac 연결 실패 수정. IOBluetooth 연결 알림 등록이 연결을 망가뜨리는 것을 확인해 제거하고, 링크는 항상 MacBook이 열며 iMac이 먼저 링크를 올리면 4초 뒤 앱이 연결하도록 변경. |
 
 ## 알려진 제한
 

@@ -334,6 +334,7 @@ footer a { color: var(--ink-2); }
     <details><summary>양쪽 Bluetooth 설정은 "연결됨"인데 앱은 연결 끊김을 반복해요</summary><p>앱이 HID 서비스를 등록하기 전에 iMac이 연결해 오면 macOS가 그 연결을 대신 받습니다. 앱의 Bluetooth 권한 창에 먼저 응답하고, 메뉴에서 iMac 이름을 눌러 다시 연결하세요. 앱은 등록될 때까지 1초마다 재시도합니다.</p></details>
     <details><summary>Caps Lock으로 한/영이 안 바뀌어요</summary><p>iMac의 시스템 설정 → 키보드에 "🌐 키를 눌러 입력 소스 변경"이 켜져 있어야 합니다. 안 되면 메뉴 → 설정 → Caps Lock → iMac에서 <b>⌃스페이스</b>를 고르세요. 이 경우 iMac의 키보드 단축키 → 입력 소스에서 "이전 입력 소스 선택"이 켜져 있어야 합니다.</p></details>
     <details><summary>다른 iMac으로 옮기려면요?</summary><p>새 iMac의 Bluetooth 설정에서 이 MacBook을 페어링하기만 하면 됩니다. 앱이 5초 안에 감지해 연결이 없을 때는 새 iMac에 바로 연결하고, 이전 iMac에 연결돼 있었다면 목록에 추가합니다. 이전 iMac의 페어링을 지우면 그쪽 재시도는 즉시 멈춥니다.</p></details>
+    <details><summary>iMac 쪽에서 "연결"을 눌렀는데 몇 초 뒤에야 붙어요</summary><p>정상입니다. iMac이 직접 연 채널은 macOS 프레임워크가 앱에 데이터를 넘기지 않아 쓸 수 없어서, 앱은 iMac이 링크를 올린 것을 감지한 뒤 4초쯤 후에 MacBook 쪽에서 연결을 엽니다. 잠자기에서 깬 뒤에도 같은 방식으로 붙습니다.</p></details>
     <details><summary>연결이 끊긴 뒤 계속 다시 시도하나요?</summary><p>아니요. 4초·8초·10초 뒤 세 번만 자동으로 시도하고 멈춥니다. 그 뒤에는 iMac 쪽에서 연결하거나 메뉴의 <b>지금 다시 연결</b>을 누르세요. iMac이 깨어나면 스스로 연결해 옵니다.</p></details>
     <details><summary>트랙패드가 느려요</summary><p>메뉴 → 설정 → 포인터 배율을 2×~3×로 올리세요. iMac 쪽 시스템 설정 → 마우스 → 이동 속도도 함께 조정합니다.</p></details>
     <details><summary>앱을 새로 설치했더니 권한을 다시 물어요</summary><p>서명 인증서가 없는 빌드라 macOS가 버전마다 새 앱으로 봅니다. 손쉬운 사용·입력 모니터링을 다시 허용하면 됩니다.</p></details>

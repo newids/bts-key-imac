@@ -33,6 +33,7 @@ final class SessionController {
     private(set) var isWaitingForHost = false
     private var reconnectWork: DispatchWorkItem?
     private var resumePolicy = RemoteResumePolicy()
+    private var hostCueWork: DispatchWorkItem?
 
     var state: SessionState { machine.state }
 
@@ -137,6 +138,7 @@ final class SessionController {
     }
 
     func targetDidChange() {
+        hostCueWork?.cancel()
         transport.targetAddress = settings.targetAddress
         if state != .idle {
             disconnect()
@@ -180,6 +182,7 @@ final class SessionController {
 
     func disconnect() {
         resumePolicy.clear()
+        hostCueWork?.cancel()
         settings.wantsConnection = false
         settings.isPaused = true
         transport.isPaused = true
@@ -200,6 +203,7 @@ final class SessionController {
 
     func prepareForTermination() {
         pairing.stop()
+        hostCueWork?.cancel()
         dispatch(.appWillTerminate)
         transport.shutdown()
         capture.stop()
@@ -335,6 +339,27 @@ final class SessionController {
 }
 
 extension SessionController: HIDTransportDelegate {
+    /// The host's own HID attempt dies after 3 s; connect outbound right after that window.
+    private static let hostAttemptWindow: TimeInterval = 4
+
+    func transportHostCameIntoRange(_ transport: HIDTransport, hostAddress: String, hostName: String?) {
+        guard !settings.isPaused else { return }
+        let isTarget = InboundPolicy.isSameHost(settings.targetAddress, hostAddress)
+        let isKnown = settings.knownHosts.contains(address: hostAddress)
+        guard isTarget || isKnown || settings.targetAddress == nil else { return }
+        guard !isLinkUp, state != .connecting else { return }
+        log.notice("host \(hostAddress, privacy: .public) in range; connecting in \(Self.hostAttemptWindow, privacy: .public)s")
+        hostCueWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isLinkUp, self.state != .connecting, !self.settings.isPaused else { return }
+            let name = PairedDeviceWatcher.resolvedName(hostName) ?? self.settings.knownHosts.entries.first { InboundPolicy.isSameHost($0.address, hostAddress) }?.name ?? hostAddress
+            self.reconnectPolicy.reset()
+            self.connect(toAddress: hostAddress, name: name)
+        }
+        hostCueWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hostAttemptWindow, execute: work)
+    }
+
     func transportDidConnect(_ transport: HIDTransport, hostAddress: String, hostName: String?) {
         if !InboundPolicy.isSameHost(settings.targetAddress, hostAddress) {
             // The user moved to another iMac and connected from there: follow it.
@@ -344,6 +369,7 @@ extension SessionController: HIDTransportDelegate {
         }
         settings.wantsConnection = true
         rememberHost(address: hostAddress, name: hostName)
+        hostCueWork?.cancel()
         cancelRetry()
         isWaitingForHost = false
         reconnectPolicy.reset()

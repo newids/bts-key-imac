@@ -2,8 +2,12 @@ import Foundation
 import HIDCore
 
 public protocol HIDTransportDelegate: AnyObject {
-    /// `hostAddress`/`hostName` identify the host on the other end (it may differ from `targetAddress` for a host-initiated link).
+    /// `hostAddress`/`hostName` identify the host on the other end.
     func transportDidConnect(_ transport: HIDTransport, hostAddress: String, hostName: String?)
+    /// A paired host brought up a baseband link on its own (it wants its keyboard back, e.g. after
+    /// waking). Its own HID attempt cannot be served (see ClassicHIDTransport), so the app should
+    /// connect outbound shortly after.
+    func transportHostCameIntoRange(_ transport: HIDTransport, hostAddress: String, hostName: String?)
     /// `error` is nil when the link was closed on purpose (user disconnect or quit).
     func transportDidDisconnect(_ transport: HIDTransport, error: HIDTransportError?)
 }
