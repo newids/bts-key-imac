@@ -16,6 +16,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let statusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let connectItem = NSMenuItem(title: "", action: #selector(connectOrDisconnect), keyEquivalent: "")
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggleMode), keyEquivalent: "")
+    private let retryItem = NSMenuItem(title: "지금 다시 연결", action: #selector(retryNow), keyEquivalent: "")
     private let deviceSectionAnchor = NSMenuItem.separator()
     private let speedMenu = NSMenu()
     private let powerMenu = NSMenu()
@@ -48,6 +49,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             self?.lastError = message
             self?.render(session.state)
         }
+        session.pairing.onNamesChanged = { [weak self] in self?.render(self?.session.state ?? .idle) }
         render(session.state)
     }
 
@@ -55,6 +57,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private func buildMenu() {
         menu.delegate = self
+        // Enabled state is decided in render(); AppKit's auto-enabling would override it.
+        menu.autoenablesItems = false
         statusLine.isEnabled = false
         menu.addItem(statusLine)
         menu.addItem(.separator())
@@ -64,6 +68,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         menu.addItem(connectItem)
         toggleItem.target = self
         menu.addItem(toggleItem)
+        retryItem.target = self
+        retryItem.isHidden = true
+        menu.addItem(retryItem)
         menu.addItem(.separator())
 
         let settingsItem = NSMenuItem(title: "설정", action: nil, keyEquivalent: "")
@@ -87,6 +94,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private func buildSettingsMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.autoenablesItems = false
         let speedItem = NSMenuItem(title: "포인터 배율", action: nil, keyEquivalent: "")
         speedItem.submenu = speedMenu
         for choice in Self.speedChoices {
@@ -126,6 +134,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     private func buildHelpMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.autoenablesItems = false
         let entries: [(String, Selector)] = [
             ("사용 방법 보기…", #selector(showGuide)),
             ("권한 확인…", #selector(requestPermissions)),
@@ -169,16 +178,18 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         statusLine.title = lastError.map { "\(description)\n\($0)" } ?? description
 
         let isActive = state != .idle
-        connectItem.title = isActive ? "연결 해제" : "iMac에 연결"
+        let targetLabel = settings.targetName ?? settings.targetAddress
+        connectItem.title = isActive ? "연결 해제" : (targetLabel.map { "‘\($0)’에 연결" } ?? "iMac에 연결 (먼저 기기를 선택)")
         connectItem.isEnabled = isActive || settings.targetAddress != nil
         toggleItem.title = state == .connectedRemote ? "MacBook 입력으로 전환 (\(hotkey))" : "iMac 입력으로 전환 (\(hotkey))"
         toggleItem.isEnabled = state == .connectedLocal || state == .connectedRemote
+        retryItem.isHidden = !(state == .disconnected && session.isWaitingForHost)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === self.menu else { return }
-        let isLinkUp = session.state == .connectedLocal || session.state == .connectedRemote
-        devices.install(in: menu, above: deviceSectionAnchor, hosts: settings.knownHosts, targetAddress: settings.targetAddress, isLinkUp: isLinkUp)
+        devices.install(in: menu, above: deviceSectionAnchor, hosts: settings.knownHosts, targetAddress: settings.targetAddress,
+                        isLinkUp: session.isLinkUp, paired: session.pairing.pairedComputers())
         for item in speedMenu.items {
             item.state = (item.representedObject as? Double) == settings.pointerMultiplier ? .on : .off
         }
@@ -204,6 +215,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     @objc private func toggleMode() { session.toggle() }
+    @objc private func retryNow() {
+        lastError = nil
+        session.retryNow()
+    }
 
     @objc private func selectSpeed(_ sender: NSMenuItem) {
         guard let value = sender.representedObject as? Double else { return }

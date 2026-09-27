@@ -27,7 +27,8 @@ final class SessionController {
     /// Starts at 4 s: a host that just dropped the link often reconnects by itself (or the user clicks
     /// "Connect" on the iMac), and an immediate outbound attempt from here collides with it.
     /// Capped at 10 s so a sleeping iMac is picked up soon after it wakes to its lock screen.
-    private var reconnectPolicy = ReconnectPolicy(initialDelay: 4, maximumDelay: 10, maximumAttempts: 5)
+    private var reconnectPolicy = ReconnectPolicy.unattended
+    let pairing = PairedDeviceWatcher()
     /// True after the unattended retry budget is spent; the app then only listens for the host.
     private(set) var isWaitingForHost = false
     private var reconnectWork: DispatchWorkItem?
@@ -42,6 +43,67 @@ final class SessionController {
         applySettings()
         wireCapture()
         observeSystemEvents()
+        wirePairingWatcher()
+    }
+
+    /// The standard "move to another iMac" flow: pair it in Bluetooth settings, and the app
+    /// adopts it as the target and connects when no link is up. A forgotten pairing stops
+    /// every retry at once, even mid-backoff.
+    private func wirePairingWatcher() {
+        pairing.onAdded = { [weak self] computer in
+            guard let self else { return }
+            let isBusy = self.state == .connectedLocal || self.state == .connectedRemote || self.state == .connecting
+            var hosts = self.settings.knownHosts
+            hosts.record(address: computer.address, name: computer.name, kind: computer.kind, at: Date().timeIntervalSince1970)
+            self.settings.knownHosts = hosts
+            guard !isBusy else {
+                self.onError?("새로 페어링된 \(computer.name)이(가) 기기 목록에 추가되었습니다.")
+                return
+            }
+            self.log.notice("adopting newly paired host \(computer.address, privacy: .public)")
+            self.hud.show(.pairedNewHost(computer.name))
+            self.connect(toAddress: computer.address, name: computer.name)
+        }
+        pairing.onNamesChanged = { [weak self] in self?.refreshKnownHostNames() }
+        pairing.onRemoved = { [weak self] address in
+            guard let self else { return }
+            var hosts = self.settings.knownHosts
+            hosts.forget(address: address)
+            self.settings.knownHosts = hosts
+            guard InboundPolicy.isSameHost(self.settings.targetAddress, address) else { return }
+            self.log.notice("target pairing removed; stopping")
+            self.disconnect()
+            self.settings.targetAddress = nil
+            self.settings.targetName = nil
+            self.transport.targetAddress = nil
+            self.onError?("iMac 페어링이 해제되어 연결을 멈췄습니다. 다른 iMac을 페어링하거나 목록에서 선택하세요.")
+        }
+    }
+
+    /// A freshly paired Mac is listed under a placeholder until its first connection; pick up the real name.
+    private func refreshKnownHostNames() {
+        var hosts = settings.knownHosts
+        var changed = false
+        for host in hosts.entries {
+            guard let name = pairing.resolvedName(of: host.address), name != host.name else { continue }
+            hosts.record(address: host.address, name: name, kind: host.kind, at: host.lastConnected)
+            changed = true
+            if InboundPolicy.isSameHost(settings.targetAddress, host.address) { settings.targetName = name }
+        }
+        if changed {
+            settings.knownHosts = hosts
+            onStateChange?(machine.state)
+        }
+    }
+
+    /// Explicit user request after the unattended budget was spent.
+    func retryNow() {
+        guard settings.targetAddress != nil else { return }
+        reconnectPolicy.reset()
+        settings.wantsConnection = true
+        settings.isPaused = false
+        transport.isPaused = false
+        attemptConnection()
     }
 
     private var hasStarted = false
@@ -55,6 +117,14 @@ final class SessionController {
         transport.targetAddress = settings.targetAddress
         transport.isPaused = settings.isPaused
         transport.start()
+        pairing.start()
+        if let target = settings.targetAddress, pairing.isPaired(address: target) == false {
+            // The user forgot this iMac while the app was not running (nil = list unavailable, keep it).
+            settings.wantsConnection = false
+            settings.targetAddress = nil
+            settings.targetName = nil
+            transport.targetAddress = nil
+        }
         if settings.wantsConnection, settings.targetAddress != nil {
             connect()
         }
@@ -86,7 +156,8 @@ final class SessionController {
     private func rememberHost(address: String, name: String?) {
         let device = IOBluetoothDevice(addressString: address)
         let kind = device.map { BluetoothDeviceKind(classOfDevice: $0.classOfDevice) } ?? .computer
-        let displayName = name.flatMap { $0.isEmpty ? nil : $0 } ?? device?.name ?? address
+        let displayName = PairedDeviceWatcher.resolvedName(name) ?? PairedDeviceWatcher.resolvedName(device?.name)
+            ?? PairedDeviceWatcher.placeholderName(for: InboundPolicy.normalize(address))
         var hosts = settings.knownHosts
         hosts.record(address: address, name: displayName, kind: kind, at: Date().timeIntervalSince1970)
         settings.knownHosts = hosts
@@ -125,7 +196,10 @@ final class SessionController {
         dispatch(.toggleRequested)
     }
 
+    var isLinkUp: Bool { state == .connectedLocal || state == .connectedRemote }
+
     func prepareForTermination() {
+        pairing.stop()
         dispatch(.appWillTerminate)
         transport.shutdown()
         capture.stop()

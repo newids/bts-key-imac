@@ -63,6 +63,7 @@ final class HUDWindow {
         case .remote: return "→ iMac"
         case .local: return "→ MacBook"
         case .disconnected: return "연결 끊김"
+        case .pairedNewHost(let name): return "\(name) 페어링됨 · 연결 중"
         }
     }
 }

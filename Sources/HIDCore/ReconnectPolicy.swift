@@ -16,6 +16,11 @@ public struct ReconnectPolicy: Sendable {
         self.maximumAttempts = maximumAttempts
     }
 
+    /// What the app uses without the user asking: 4 s, 8 s, 10 s, then it stops and waits
+    /// for the host or an explicit "connect now". A host that refuses three times in a row
+    /// is asleep, unpaired, or busy with another keyboard; paging it further only costs battery.
+    public static let unattended = ReconnectPolicy(initialDelay: 4, maximumDelay: 10, maximumAttempts: 3)
+
     public var isExhausted: Bool { attempt >= maximumAttempts }
 
     /// Delay in seconds before the next attempt; each call counts as one attempt.

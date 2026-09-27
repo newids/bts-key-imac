@@ -16,12 +16,14 @@ final class DeviceMenuSection {
     init() {
         otherItem = NSMenuItem(title: "다른 페어링된 기기", action: nil, keyEquivalent: "")
         otherItem.submenu = otherDevicesMenu
+        otherDevicesMenu.autoenablesItems = false
         emptyItem.isEnabled = false
     }
 
     /// Rebuilds the rows in `menu` just above `anchor`. Old rows are removed first, so the
     /// anchor's index is read only after that removal.
-    func install(in menu: NSMenu, above anchor: NSMenuItem, hosts: KnownHosts, targetAddress: String?, isLinkUp: Bool) {
+    func install(in menu: NSMenu, above anchor: NSMenuItem, hosts: KnownHosts, targetAddress: String?, isLinkUp: Bool,
+                 paired: [PairedDeviceWatcher.PairedComputer]) {
         rows.forEach { if menu.items.contains($0) { menu.removeItem($0) } }
         rows = []
         var cursor = menu.index(of: anchor)
@@ -35,16 +37,19 @@ final class DeviceMenuSection {
             item.representedObject = host
             item.image = Self.icon(for: host.kind)
             let isTarget = InboundPolicy.isSameHost(host.address, targetAddress)
+            let isPaired = paired.contains { $0.address == host.address }
             item.state = isTarget && isLinkUp ? .on : .off
+            item.isEnabled = isPaired
+            let status = isTarget && isLinkUp ? "연결됨" : (isPaired ? Self.lastSeen(host.lastConnected) : "페어링 해제됨")
             if #available(macOS 14.4, *) {
-                item.subtitle = isTarget && isLinkUp ? "연결됨" : Self.lastSeen(host.lastConnected)
-            } else if isTarget && isLinkUp {
-                item.title = "\(host.name) — 연결됨"
+                item.subtitle = status
+            } else if isTarget && isLinkUp || !isPaired {
+                item.title = "\(host.name) — \(status)"
             }
             item.submenu = contextMenu(for: host, isConnected: isTarget && isLinkUp)
             rows.append(item)
         }
-        rebuildOtherDevices(excluding: hosts)
+        rebuildOtherDevices(excluding: hosts, paired: paired)
         rows.append(otherItem)
         for row in rows {
             menu.insertItem(row, at: cursor)
@@ -67,24 +72,21 @@ final class DeviceMenuSection {
         return menu
     }
 
-    private func rebuildOtherDevices(excluding hosts: KnownHosts) {
+    private func rebuildOtherDevices(excluding hosts: KnownHosts, paired: [PairedDeviceWatcher.PairedComputer]) {
         otherDevicesMenu.removeAllItems()
-        let paired = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]) ?? []
-        let candidates = paired.filter { device in
-            guard let address = device.addressString else { return false }
-            return BluetoothDeviceKind(classOfDevice: device.classOfDevice).canHostKeyboard && !hosts.contains(address: address)
-        }
+        let candidates = paired.filter { !hosts.contains(address: $0.address) }
         if candidates.isEmpty {
             let none = NSMenuItem(title: "페어링된 컴퓨터가 없습니다", action: nil, keyEquivalent: "")
             none.isEnabled = false
             otherDevicesMenu.addItem(none)
         }
-        for device in candidates {
-            let name = device.name.flatMap { $0.isEmpty ? nil : $0 } ?? device.addressString ?? "?"
-            let item = NSMenuItem(title: name, action: #selector(rowSelected(_:)), keyEquivalent: "")
+        for computer in candidates {
+            // Names missing from the cache are being looked up; show the address only until then.
+            let title = computer.hasResolvedName ? computer.name : "\(computer.name) (이름 조회 중…)"
+            let item = NSMenuItem(title: title, action: #selector(rowSelected(_:)), keyEquivalent: "")
             item.target = self
-            item.image = Self.icon(for: BluetoothDeviceKind(classOfDevice: device.classOfDevice))
-            item.representedObject = KnownHost(address: device.addressString ?? "", name: name, kind: .computer, lastConnected: 0)
+            item.image = Self.icon(for: computer.kind)
+            item.representedObject = KnownHost(address: computer.address, name: computer.name, kind: computer.kind, lastConnected: 0)
             otherDevicesMenu.addItem(item)
         }
         otherDevicesMenu.addItem(.separator())

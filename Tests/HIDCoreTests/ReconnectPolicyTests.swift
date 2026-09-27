@@ -49,3 +49,13 @@ final class ReconnectPolicyLimitTests: XCTestCase {
         XCTAssertEqual(policy.nextDelayIfAllowed(), 1)
     }
 }
+
+final class ReconnectPolicyDefaultsTests: XCTestCase {
+    func testUnattendedBudgetIsThreeAttemptsWithinHalfAMinute() {
+        var policy = ReconnectPolicy.unattended
+        var total = 0.0
+        while let delay = policy.nextDelayIfAllowed() { total += delay }
+        XCTAssertEqual(policy.attempt, 3)
+        XCTAssertLessThanOrEqual(total, 30)
+    }
+}

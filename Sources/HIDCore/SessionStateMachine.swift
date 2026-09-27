@@ -22,6 +22,7 @@ public enum HUDMessage: Equatable, Sendable {
     case remote
     case local
     case disconnected
+    case pairedNewHost(String)
 }
 
 /// Side effects the app shell must perform after a transition.
