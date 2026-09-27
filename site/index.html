@@ -49,7 +49,7 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
-  margin: 0; background: var(--paper); color: var(--ink);
+  margin: 0; overflow-x: hidden; background: var(--paper); color: var(--ink);
   font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-size: var(--text); line-height: 1.65; -webkit-font-smoothing: antialiased; word-break: keep-all;
 }
@@ -74,6 +74,7 @@ kbd { font-family: inherit; font-weight: 700; font-size: .92em; padding: 2px 8px
 /* ---- hero ---- */
 .hero { position: relative; overflow: hidden; color: #fff; background: linear-gradient(135deg, var(--navy-deep), var(--navy) 45%, var(--teal)); }
 .hero::before { content: ""; position: absolute; inset: -20% -10% auto auto; width: 60vw; height: 60vw; max-width: 720px; max-height: 720px; border-radius: 50%; background: radial-gradient(closest-side, oklch(74% 0.17 62 / .35), transparent 70%); pointer-events: none; }
+.hero { overflow-x: clip; }
 .hero .wrap { position: relative; display: grid; grid-template-columns: 1.15fr .85fr; gap: var(--space-2); align-items: center; padding: var(--space-3) 0; }
 .hero h1 { font-size: var(--display); font-weight: 900; letter-spacing: -0.035em; }
 .hero h1 em { font-style: normal; color: var(--orange); }
@@ -132,13 +133,15 @@ section + section { border-top: 1px solid var(--line); }
 .callout b { color: var(--ink); }
 
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.two > * { min-width: 0; }
 @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
 .list { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
 .list li { display: grid; grid-template-columns: 22px 1fr; gap: 12px; align-items: start; font-size: 15.5px; color: var(--ink-2); }
 .list li::before { content: "●"; color: var(--teal); font-size: 10px; line-height: 2.4; }
 .list li b { color: var(--ink); }
 
-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 15px; }
 th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
 .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
@@ -300,7 +303,7 @@ footer a { color: var(--ink-2); }
     </div>
     <div class="two">
       <div>
-        <table>
+        <div class="table-wrap"><table>
           <thead><tr><th>계층</th><th>macOS</th><th>Windows</th><th>공유</th></tr></thead>
           <tbody>
             <tr><td>리포트 규격·인코딩·키코드·상태 머신</td><td>순수 Swift</td><td>순수 로직</td><td><span class="tag done">가능</span></td></tr>
@@ -308,7 +311,7 @@ footer a { color: var(--ink-2); }
             <tr><td>입력 캡처</td><td>CGEvent 탭</td><td>WH_KEYBOARD_LL / WH_MOUSE_LL 훅 + ClipCursor</td><td><span class="tag hold">별도</span></td></tr>
             <tr><td>UI</td><td>메뉴바 (AppKit)</td><td>트레이 (WinUI)</td><td><span class="tag hold">별도</span></td></tr>
           </tbody>
-        </table>
+        </table></div>
         <p style="margin-top:14px;color:var(--ink-2);font-size:14.5px">Windows 인박스 블루투스 스택에는 Classic HID 장치 역할 API가 없습니다. 양쪽에서 공개 API로 동작하는 것은 BLE HID over GATT뿐이며, Windows 쪽 어댑터가 주변장치(peripheral) 역할을 지원해야 합니다. 저가 USB 어댑터 다수가 지원하지 않습니다.</p>
       </div>
       <div class="phases">
