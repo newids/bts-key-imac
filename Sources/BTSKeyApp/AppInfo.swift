@@ -9,8 +9,8 @@ enum AppInfo {
     static let copyright = "© 2026 newid"
 
     /// Distribution and support pages; the download page lives next to `docs/distribution.md`.
-    static let websiteURL = URL(string: "https://github.com/newids/bts-key-imac")!
-    static let helpURL = URL(string: "https://github.com/newids/bts-key-imac/blob/main/docs/usage.md")!
+    static let websiteURL = URL(string: "https://newids.github.io/bts-key-imac/")!
+    static let helpURL = URL(string: "https://newids.github.io/bts-key-imac/#usage")!
     static let troubleshootingURL = URL(string: "https://github.com/newids/bts-key-imac/blob/main/docs/connection-audit.md")!
     static let supportEmail = "newids@gmail.com"
 

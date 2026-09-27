@@ -3,6 +3,7 @@
 MacBook을 iMac의 **블루투스 키보드·트랙패드**로 만드는 macOS 메뉴바 앱입니다. iMac에는 아무것도 설치하지 않습니다. 관리자 권한이 없는 관리형 iMac에서도 블루투스 페어링만으로 동작합니다.
 
 <p align="center"><img src="docs/images/app-icon.png" width="128" alt="BTS Key 아이콘"></p>
+<p align="center"><a href="https://newids.github.io/bts-key-imac/">웹사이트</a> · <a href="https://github.com/newids/bts-key-imac/releases/latest">다운로드</a></p>
 
 ## 무엇을 하나
 

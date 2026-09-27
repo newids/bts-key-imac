@@ -8,3 +8,4 @@ build/
 .serena/project.local.yml
 .vscode/
 PRD.md
+.playwright-mcp/

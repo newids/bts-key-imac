@@ -20,6 +20,10 @@ echo 0.2.0 > VERSION            # 버전 올리기
 
 공증 프로필은 한 번만 만든다: `xcrun notarytool store-credentials btskey --apple-id <id> --team-id <TEAMID> --password <앱 암호>`.
 
+## 웹사이트
+
+`site/index.html`이 GitHub Pages(https://newids.github.io/bts-key-imac/)로 배포된다. `main`에 `site/` 변경이 푸시되면 `.github/workflows/pages.yml`이 자동 배포한다. 다운로드 버튼은 GitHub API로 최신 릴리스의 DMG를 찾아 가리키므로 릴리스만 올리면 사이트는 손댈 필요가 없다.
+
 ## 웹사이트에 올릴 것
 
 - `build/BTSKey-<버전>.dmg`와 `.sha256`.

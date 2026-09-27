@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTS Key — MacBook을 iMac의 블루투스 키보드로</title>
+<meta name="description" content="BTS Key는 MacBook을 iMac의 블루투스 키보드·트랙패드로 만드는 macOS 메뉴바 앱입니다. iMac에는 아무것도 설치하지 않습니다.">
+<meta property="og:title" content="BTS Key — MacBook을 iMac의 블루투스 키보드로">
+<meta property="og:description" content="iMac에 아무것도 설치하지 않고, 블루투스 페어링만으로 MacBook의 키보드와 트랙패드를 iMac에서 씁니다.">
+<meta property="og:image" content="assets/app-icon.png">
+<link rel="icon" href="assets/app-icon.png">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root {
+  --navy: oklch(28% 0.09 268);
+  --navy-deep: oklch(20% 0.07 268);
+  --teal: oklch(52% 0.11 205);
+  --teal-soft: oklch(94% 0.03 205);
+  --orange: oklch(74% 0.17 62);
+  --orange-soft: oklch(95% 0.05 70);
+  --ink: oklch(22% 0.02 268);
+  --ink-2: oklch(45% 0.02 268);
+  --ink-3: oklch(62% 0.015 268);
+  --paper: oklch(98.5% 0.005 90);
+  --paper-2: oklch(96% 0.01 90);
+  --line: oklch(89% 0.01 268);
+  --radius-l: 28px; --radius-m: 16px; --radius-s: 10px;
+  --space-1: clamp(12px, 1.5vw, 20px);
+  --space-2: clamp(24px, 3vw, 40px);
+  --space-3: clamp(48px, 7vw, 112px);
+  --text: clamp(16px, 1.05vw, 18px);
+  --display: clamp(40px, 6.2vw, 84px);
+  --h2: clamp(28px, 3.4vw, 44px);
+  --ease: cubic-bezier(.2,.7,.2,1);
+  --dur: 220ms;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: oklch(94% 0.01 90); --ink-2: oklch(72% 0.015 268); --ink-3: oklch(58% 0.015 268);
+    --paper: oklch(17% 0.02 268); --paper-2: oklch(21% 0.025 268); --line: oklch(30% 0.02 268);
+    --teal-soft: oklch(28% 0.05 205); --orange-soft: oklch(32% 0.07 62);
+  }
+}
+:root[data-theme="dark"] {
+  --ink: oklch(94% 0.01 90); --ink-2: oklch(72% 0.015 268); --ink-3: oklch(58% 0.015 268);
+  --paper: oklch(17% 0.02 268); --paper-2: oklch(21% 0.025 268); --line: oklch(30% 0.02 268);
+  --teal-soft: oklch(28% 0.05 205); --orange-soft: oklch(32% 0.07 62);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: var(--text); line-height: 1.65; -webkit-font-smoothing: antialiased; word-break: keep-all;
+}
+a { color: inherit; }
+.wrap { width: min(1120px, 100% - 32px); margin-inline: auto; }
+h1, h2, h3 { line-height: 1.15; letter-spacing: -0.02em; margin: 0; }
+h2 { font-size: var(--h2); font-weight: 800; }
+p { margin: 0; }
+.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+kbd { font-family: inherit; font-weight: 700; font-size: .92em; padding: 2px 8px; border-radius: 7px; background: var(--orange-soft); color: var(--ink); border: 1px solid oklch(74% 0.17 62 / .55); }
+
+/* ---- nav ---- */
+.nav { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(14px); background: color-mix(in oklab, var(--paper) 78%, transparent); border-bottom: 1px solid var(--line); }
+.nav .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; text-decoration: none; }
+.brand img { width: 28px; height: 28px; border-radius: 7px; }
+.nav ul { list-style: none; display: flex; gap: 22px; margin: 0 0 0 auto; padding: 0; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.nav a:not(.brand) { text-decoration: none; }
+.nav a:not(.brand):hover { color: var(--ink); }
+@media (max-width: 720px) { .nav ul { display: none; } }
+
+/* ---- hero ---- */
+.hero { position: relative; overflow: hidden; color: #fff; background: linear-gradient(135deg, var(--navy-deep), var(--navy) 45%, var(--teal)); }
+.hero::before { content: ""; position: absolute; inset: -20% -10% auto auto; width: 60vw; height: 60vw; max-width: 720px; max-height: 720px; border-radius: 50%; background: radial-gradient(closest-side, oklch(74% 0.17 62 / .35), transparent 70%); pointer-events: none; }
+.hero .wrap { position: relative; display: grid; grid-template-columns: 1.15fr .85fr; gap: var(--space-2); align-items: center; padding: var(--space-3) 0; }
+.hero h1 { font-size: var(--display); font-weight: 900; letter-spacing: -0.035em; }
+.hero h1 em { font-style: normal; color: var(--orange); }
+.hero .lead { margin-top: 20px; font-size: clamp(17px, 1.4vw, 21px); color: oklch(92% 0.02 268 / .9); max-width: 34ch; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; align-items: center; }
+.btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: 999px; font-weight: 800; text-decoration: none; transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.btn:focus-visible { outline: 3px solid var(--orange); outline-offset: 3px; }
+.btn-primary { background: var(--orange); color: var(--navy-deep); box-shadow: 0 10px 30px oklch(74% 0.17 62 / .35); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 16px 36px oklch(74% 0.17 62 / .45); }
+.btn-ghost { color: #fff; border: 1.5px solid oklch(100% 0 0 / .35); }
+.btn-ghost:hover { border-color: #fff; }
+.meta { margin-top: 14px; font-size: 13px; color: oklch(90% 0.02 268 / .7); }
+.meta code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+/* menu mockup */
+.mock { justify-self: end; width: min(100%, 420px); filter: drop-shadow(0 30px 60px oklch(0% 0 0 / .45)); }
+.mock .bar { display: flex; justify-content: flex-end; align-items: center; gap: 14px; height: 30px; padding: 0 12px; background: oklch(96% 0.005 90 / .92); border-radius: 12px 12px 0 0; color: #222; font-size: 12px; }
+.mock .bar .key { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 5px; background: var(--orange); color: #fff; }
+.mock .box { margin: 8px 12px 0 auto; width: 236px; padding: 10px 12px; background: oklch(98% 0.005 90 / .97); color: #1b1b1f; border-radius: 12px; border: 1.5px solid var(--orange); box-shadow: 0 10px 30px oklch(0% 0 0 / .25); display: flex; gap: 10px; align-items: center; }
+.mock .box b { display: block; font-size: 14px; }
+.mock .box small { font-size: 11px; color: #666; }
+.mock .menu { margin: 10px 0 0; padding: 8px; background: oklch(97% 0.005 90 / .97); color: #1b1b1f; border-radius: 12px; font-size: 13px; }
+.mock .menu .row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; }
+.mock .menu .row.on { background: oklch(60% 0.15 262); color: #fff; }
+.mock .menu .row .ic { width: 16px; height: 16px; border-radius: 3px; background: currentColor; opacity: .75; mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3' y='4' width='18' height='12' rx='2' fill='black'/%3E%3Crect x='8' y='18' width='8' height='2' fill='black'/%3E%3C/svg%3E"); }
+.mock .menu .sep { height: 1px; background: #ddd; margin: 6px 4px; }
+.mock .menu .muted { color: #777; font-size: 12px; padding: 4px 10px; }
+@media (max-width: 860px) { .hero .wrap { grid-template-columns: 1fr; } .mock { justify-self: start; } }
+
+/* ---- sections ---- */
+section { padding: var(--space-3) 0; }
+section + section { border-top: 1px solid var(--line); }
+.head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: var(--space-2); align-items: end; margin-bottom: var(--space-2); }
+.head p { color: var(--ink-2); font-size: clamp(16px, 1.2vw, 19px); }
+@media (max-width: 720px) { .head { grid-template-columns: 1fr; } }
+
+.bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+.card { background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 22px; transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.card:hover { transform: translateY(-3px); border-color: var(--teal); }
+.card h3 { font-size: 18px; font-weight: 800; margin: 12px 0 6px; }
+.card p { color: var(--ink-2); font-size: 15px; }
+.card .glyph { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; background: var(--teal-soft); color: var(--teal); font-size: 20px; }
+.card.wide { grid-column: span 3; }
+.card.accent { grid-column: span 3; background: linear-gradient(135deg, var(--navy), var(--teal)); color: #fff; border: none; }
+.card.accent p { color: oklch(94% 0.02 268 / .85); }
+.card.accent .glyph { background: oklch(100% 0 0 / .15); color: var(--orange); }
+.card.third { grid-column: span 2; }
+@media (max-width: 900px) { .card.wide, .card.accent, .card.third { grid-column: span 6; } }
+
+.steps { counter-reset: step; display: grid; gap: 14px; }
+.step { display: grid; grid-template-columns: 56px 1fr; gap: 18px; padding: 22px; background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius-m); }
+.step::before { counter-increment: step; content: counter(step); width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-weight: 900; font-size: 18px; background: var(--navy); color: #fff; }
+.step h3 { font-size: 18px; font-weight: 800; margin-bottom: 6px; }
+.step p { color: var(--ink-2); font-size: 15.5px; }
+.callout { margin-top: 18px; padding: 18px 20px; border-radius: var(--radius-m); background: var(--orange-soft); border-left: 4px solid var(--orange); font-size: 15px; }
+.callout b { color: var(--ink); }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+@media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+.list { display: grid; gap: 10px; padding: 0; margin: 0; list-style: none; }
+.list li { display: grid; grid-template-columns: 22px 1fr; gap: 12px; align-items: start; font-size: 15.5px; color: var(--ink-2); }
+.list li::before { content: "●"; color: var(--teal); font-size: 10px; line-height: 2.4; }
+.list li b { color: var(--ink); }
+
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.tag.done { background: var(--teal-soft); color: var(--teal); }
+.tag.plan { background: var(--orange-soft); color: oklch(52% 0.15 62); }
+.tag.hold { background: var(--paper-2); color: var(--ink-3); border: 1px solid var(--line); }
+
+.phases { display: grid; gap: 0; border-left: 2px solid var(--line); margin-left: 8px; }
+.phase { position: relative; padding: 6px 0 26px 28px; }
+.phase::before { content: ""; position: absolute; left: -7px; top: 12px; width: 12px; height: 12px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px var(--paper); }
+.phase.pending::before { background: var(--paper); border: 2px solid var(--ink-3); }
+.phase h3 { font-size: 17px; font-weight: 800; }
+.phase p { color: var(--ink-2); font-size: 15px; margin-top: 4px; }
+
+details { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 0 18px; background: var(--paper-2); }
+details + details { margin-top: 10px; }
+summary { cursor: pointer; padding: 14px 0; font-weight: 700; list-style: none; display: flex; justify-content: space-between; }
+summary::after { content: "+"; color: var(--teal); font-weight: 800; }
+details[open] summary::after { content: "–"; }
+details p { padding: 0 0 16px; color: var(--ink-2); font-size: 15px; }
+
+footer { padding: var(--space-2) 0 var(--space-3); color: var(--ink-3); font-size: 14px; border-top: 1px solid var(--line); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: center; }
+footer a { color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/app-icon.png" alt="">BTS Key</a>
+    <nav aria-label="페이지 내 이동"><ul>
+      <li><a href="#features">소개</a></li><li><a href="#install">설치</a></li><li><a href="#usage">사용 방법</a></li>
+      <li><a href="#how">동작 원리</a></li><li><a href="#windows">Windows 계획</a></li><li><a href="#support">지원</a></li>
+    </ul></nav>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow" style="color:var(--orange)">macOS 메뉴바 앱</p>
+      <h1 id="hero-title">MacBook을<br>iMac의 <em>블루투스 키보드</em>로.</h1>
+      <p class="lead">iMac에는 아무것도 설치하지 않습니다. 블루투스 페어링 한 번이면 MacBook의 키보드와 트랙패드를 iMac에서 그대로 씁니다. 관리자 권한이 없는 관리형 iMac에서도 됩니다.</p>
+      <div class="cta">
+        <a class="btn btn-primary" id="download" href="https://github.com/newids/bts-key-imac/releases/latest">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          <span>macOS용 다운로드</span>
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/newids/bts-key-imac">GitHub에서 보기</a>
+      </div>
+      <p class="meta" id="meta">macOS 13 이상 · Apple 실리콘·Intel · 무료, MIT</p>
+    </div>
+    <div class="mock" aria-hidden="true">
+      <div class="bar"><span class="key">⌨</span><span>🔵</span><span>9월 27일 (일) 오후 2:47</span></div>
+      <div class="box"><span style="font-size:22px;color:var(--orange)">⌨</span><div><b>iMac 입력 중</b><small>⌥⌘K 로 MacBook 입력 복귀</small></div></div>
+      <div class="menu">
+        <div class="muted">연결됨 · 입력: iMac</div>
+        <div class="sep"></div>
+        <div class="row on"><span class="ic"></span>iMac-B <span style="margin-left:auto">✓</span></div>
+        <div class="row"><span class="ic"></span>iMac-A</div>
+        <div class="row" style="color:#777">다른 페어링된 기기 ›</div>
+        <div class="sep"></div>
+        <div class="row">MacBook 입력으로 전환 (⌥⌘K)</div>
+        <div class="row">설정 ›</div><div class="row">도움말 ›</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <div class="head">
+      <div><p class="eyebrow">소개</p><h2 id="features-title">키보드 하나로 두 대를 씁니다</h2></div>
+      <p>MacBook을 그대로 iMac 앞에 놓고 쓰는 상황을 위해 만들었습니다. 키·트랙패드를 iMac으로 보내고, 단축키 하나로 돌아오고, 자리를 옮겨도 다시 붙습니다.</p>
+    </div>
+    <div class="bento">
+      <article class="card accent"><div class="glyph">⌨</div><h3>키보드 전달</h3><p>MacBook에서 치는 모든 키가 iMac으로 갑니다. Caps Lock은 iMac의 🌐(입력 소스 전환) 키로 바뀌어 한/영 전환이 되고, ⌃스페이스나 Caps Lock 그대로로 바꿀 수도 있습니다.</p></article>
+      <article class="card wide"><div class="glyph">☝</div><h3>트랙패드 전달</h3><p>이동·클릭·두 손가락 스크롤을 iMac의 마우스로 전달합니다. 포인터 배율은 1×~4×. iMac 입력 중에는 MacBook 포인터가 제자리에 숨겨져 두 화면에서 동시에 움직이지 않습니다.</p></article>
+      <article class="card third"><div class="glyph">⇄</div><h3>한 번에 전환</h3><p><kbd>⌥⌘K</kbd>로 MacBook ↔ iMac 입력을 오갑니다. iMac 입력 중에는 메뉴바 아래 주황색 상자가 떠 있어 지금 어디에 치고 있는지 헷갈리지 않습니다.</p></article>
+      <article class="card third"><div class="glyph">☾</div><h3>잠자기 뒤에도</h3><p>iMac이 깨어나면 다시 붙고, 쓰던 중이었다면 iMac 입력으로 자동 복귀합니다. 로그인 화면에서 바로 암호를 칠 수 있습니다.</p></article>
+      <article class="card third"><div class="glyph">◐</div><h3>절전</h3><p>iMac 입력 중에는 MacBook 화면을 어둡게 하거나 끕니다. 돌아오면 원래 밝기로 복원합니다.</p></article>
+      <article class="card wide"><div class="glyph">▤</div><h3>기기 목록</h3><p>연결한 적 있는 iMac이 메뉴에 아이콘과 이름으로 남습니다. 자리를 옮겨 다른 iMac에서 연결해 오면 그 iMac을 새 대상으로 기억합니다.</p></article>
+      <article class="card wide"><div class="glyph">🔒</div><h3>iMac에는 설치 없음</h3><p>iMac 쪽에는 프로그램도, 관리자 권한도 필요 없습니다. iMac은 BTS Key를 평범한 블루투스 키보드·마우스로 봅니다.</p></article>
+    </div>
+  </div>
+</section>
+
+<section id="install" aria-labelledby="install-title">
+  <div class="wrap">
+    <div class="head">
+      <div><p class="eyebrow">설치</p><h2 id="install-title">내려받아 끌어 놓으면 끝</h2></div>
+      <p>요구 사항: macOS 13 Ventura 이상(Apple 실리콘·Intel), 블루투스. iMac 쪽은 블루투스만 있으면 어느 macOS든 됩니다.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div><h3>DMG 내려받기</h3><p>위의 <b>macOS용 다운로드</b> 버튼을 누르면 최신 버전 <code>BTSKey-&lt;버전&gt;.dmg</code>를 받습니다. 첨부된 <code>.sha256</code>으로 무결성을 확인할 수 있습니다.</p></div></div>
+      <div class="step"><div><h3>Applications로 끌어 놓기</h3><p>DMG를 열고 <b>BTS Key</b> 아이콘을 <b>Applications</b> 폴더로 끌어 놓습니다.</p></div></div>
+      <div class="step"><div><h3>처음 한 번, control-클릭으로 열기</h3><p>응용 프로그램에서 BTS Key를 <b>control-클릭(오른쪽 클릭) → 열기 → 열기</b>. Apple 개발자 인증서로 서명·공증되지 않은 앱이라 첫 실행 때만 이 절차가 필요합니다.</p></div></div>
+      <div class="step"><div><h3>첫 실행 안내 따라가기</h3><p>앱이 안내 창을 띄웁니다. Bluetooth·손쉬운 사용·입력 모니터링 권한을 허용하고 iMac과 페어링하면 준비가 끝납니다. 안내는 메뉴 → 도움말 → 사용 방법 보기로 언제든 다시 볼 수 있습니다.</p></div></div>
+    </div>
+    <div class="callout"><b>"확인되지 않은 개발자" 경고가 뜨면</b> 그냥 닫지 말고 control-클릭 → 열기를 쓰거나, 시스템 설정 → 개인정보 보호 및 보안 아래쪽의 <b>그래도 열기</b>를 누르세요.</div>
+  </div>
+</section>
+
+<section id="usage" aria-labelledby="usage-title">
+  <div class="wrap">
+    <div class="head">
+      <div><p class="eyebrow">사용 방법</p><h2 id="usage-title">페어링 한 번, 그다음은 단축키</h2></div>
+      <p>세 단계면 됩니다. 페어링은 처음 한 번, 연결은 iMac이나 MacBook 어느 쪽에서든, 전환은 <kbd>⌥⌘K</kbd>.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div><h3>페어링 (처음 한 번)</h3><p>iMac의 시스템 설정 → Bluetooth에서 이 MacBook을 페어링합니다. 양쪽에 같은 숫자가 보이면 승인합니다. 관리자 권한은 필요 없습니다.</p></div></div>
+      <div class="step"><div><h3>연결</h3><p>iMac의 Bluetooth 설정에서 <b>BTS Key</b> 옆 <b>연결</b>을 누르거나, MacBook 메뉴바의 키보드 아이콘 → iMac 이름을 누릅니다. 연결되면 아이콘이 외곽선 키보드로 바뀝니다.</p></div></div>
+      <div class="step"><div><h3>전환</h3><p><kbd>⌥⌘K</kbd>로 iMac 입력으로 넘어가고, 같은 키로 돌아옵니다. 화면 잠금·잠자기·연결 끊김 때는 자동으로 MacBook 입력으로 돌아오므로 MacBook을 조작하지 못하는 일이 없습니다.</p></div></div>
+    </div>
+    <div class="two" style="margin-top:var(--space-2)">
+      <div>
+        <h3 style="font-size:20px;font-weight:800;margin-bottom:14px">메뉴 구성</h3>
+        <ul class="list">
+          <li><span><b>기기 목록</b> — 연결한 적 있는 컴퓨터(최근 8대). 이름을 누르면 바로 연결. "다른 페어링된 기기"에 아직 연결한 적 없는 컴퓨터.</span></li>
+          <li><span><b>설정</b> — 포인터 배율, iMac 입력 중 절전, Caps Lock → iMac, 재연결 시 자동 복귀, 로그인 시 자동 실행.</span></li>
+          <li><span><b>도움말</b> — 사용 방법 보기, 권한 확인, 문제 해결 안내, 진단 로그 내보내기, 지원 웹사이트, 문의하기.</span></li>
+          <li><span><b>BTS Key 정보</b> — 버전과 지원 연락처.</span></li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="font-size:20px;font-weight:800;margin-bottom:14px">한/영 전환</h3>
+        <ul class="list">
+          <li><span><b>🌐 키 (기본)</b> — Caps Lock을 누르는 동안 iMac에 🌐가 눌린 것으로 보냅니다. iMac의 "🌐 키로 입력 소스 변경" 설정으로 한/영이 바뀝니다.</span></li>
+          <li><span><b>⌃스페이스</b> — iMac의 "이전 입력 소스 선택" 단축키를 보냅니다. 재페어링 없이 동작합니다.</span></li>
+          <li><span><b>Caps Lock 그대로</b> — 대문자 고정으로 씁니다.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="head">
+      <div><p class="eyebrow">동작 원리</p><h2 id="how-title">진짜 블루투스 키보드인 척합니다</h2></div>
+      <p>MacBook이 Bluetooth Classic HID 장치(키보드+마우스 조합)를 흉내 냅니다. 소프트웨어 KVM과 달리 네트워크도, iMac 쪽 프로그램도 필요 없습니다.</p>
+    </div>
+    <div class="bento">
+      <article class="card third"><div class="glyph">1</div><h3>서비스 게시</h3><p>IOBluetooth로 HID 서비스 레코드(SDP)를 게시합니다. 그러면 iMac이 페어링된 키보드에 하듯 L2CAP 제어·인터럽트 채널을 열어 옵니다. MacBook에서 먼저 열 수도 있습니다.</p></article>
+      <article class="card third"><div class="glyph">2</div><h3>입력 가로채기</h3><p>iMac 입력 모드에서는 CGEvent 탭이 키·트랙패드 이벤트를 가로채 USB HID 리포트로 바꿉니다. 탭은 전용 스레드에서 돌아, 블루투스 쪽이 멈춰도 MacBook 입력은 멈추지 않습니다.</p></article>
+      <article class="card third"><div class="glyph">3</div><h3>리포트 전송</h3><p>리포트는 인터럽트 채널로 8ms 단위로 보냅니다. 마우스 델타는 16비트라 빠른 스와이프도 뭉개지지 않습니다.</p></article>
+    </div>
+    <p style="margin-top:20px;color:var(--ink-2);font-size:15px">왜 이 설계인지, 무엇을 시험했는지는 <a href="https://github.com/newids/bts-key-imac/blob/main/docs/analysis-and-design.md">분석·설계 문서</a>와 <a href="https://github.com/newids/bts-key-imac/blob/main/docs/connection-audit.md">연결 과정 감사 기록</a>에 있습니다.</p>
+  </div>
+</section>
+
+<section id="windows" aria-labelledby="windows-title">
+  <div class="wrap">
+    <div class="head">
+      <div><p class="eyebrow">Windows 개발 계획</p><h2 id="windows-title">같은 규격, 다른 전송 계층</h2></div>
+      <p>Windows용은 <b>분석까지 마쳤고 개발은 시작하지 않았습니다.</b> 결론은 "프로토콜·로직은 단일 소스, 전송·입력 캡처·UI는 OS별 구현"입니다. 전체의 절반쯤을 공유할 수 있습니다.</p>
+    </div>
+    <div class="two">
+      <div>
+        <table>
+          <thead><tr><th>계층</th><th>macOS</th><th>Windows</th><th>공유</th></tr></thead>
+          <tbody>
+            <tr><td>리포트 규격·인코딩·키코드·상태 머신</td><td>순수 Swift</td><td>순수 로직</td><td><span class="tag done">가능</span></td></tr>
+            <tr><td>블루투스 전송</td><td>Classic HID (IOBluetooth)</td><td>BLE HID over GATT (WinRT GattServiceProvider)</td><td><span class="tag hold">인터페이스만</span></td></tr>
+            <tr><td>입력 캡처</td><td>CGEvent 탭</td><td>WH_KEYBOARD_LL / WH_MOUSE_LL 훅 + ClipCursor</td><td><span class="tag hold">별도</span></td></tr>
+            <tr><td>UI</td><td>메뉴바 (AppKit)</td><td>트레이 (WinUI)</td><td><span class="tag hold">별도</span></td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:14px;color:var(--ink-2);font-size:14.5px">Windows 인박스 블루투스 스택에는 Classic HID 장치 역할 API가 없습니다. 양쪽에서 공개 API로 동작하는 것은 BLE HID over GATT뿐이며, Windows 쪽 어댑터가 주변장치(peripheral) 역할을 지원해야 합니다. 저가 USB 어댑터 다수가 지원하지 않습니다.</p>
+      </div>
+      <div class="phases">
+        <div class="phase"><span class="tag done">완료</span><h3>0. 타당성 분석</h3><p>Windows에서 BLE HID 키보드를 흉내 내는 오픈소스(windows-ble-hid, MIT)가 macOS 호스트에 자동 재연결까지 확인됨. 스택 선택지 비교 완료.</p></div>
+        <div class="phase pending"><span class="tag plan">계획</span><h3>1. BLE 전송을 Mac에서 먼저</h3><p>macOS의 2안(CoreBluetooth, 128비트 HID UUID)으로 BLE HID over GATT 전송을 구현해 iMac에서 검증한다. Windows와 같은 프로토콜을 Mac에서 먼저 굳힌다.</p></div>
+        <div class="phase pending"><span class="tag plan">계획</span><h3>2. 코어 이식</h3><p>HIDCore(리포트 규격·인코딩·키코드 테이블·상태 머신, 순수 Swift 약 2천 줄)를 Swift on Windows로 그대로 빌드하거나 C#으로 포팅한다.</p></div>
+        <div class="phase pending"><span class="tag plan">계획</span><h3>3. Windows 전송·캡처·트레이</h3><p>WinRT GattServiceProvider 전송, 저수준 키보드·마우스 훅, 트레이 UI. 어댑터 진단(주변장치 역할 지원 여부)을 첫 실행 안내에 포함.</p></div>
+        <div class="phase pending"><span class="tag plan">계획</span><h3>4. 검증 매트릭스</h3><p>Windows 10 2004+·11, Intel/Realtek/ASUS 어댑터, 대상 macOS 13~26. 재연결·잠자기 복귀·한/영 전환.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="support" aria-labelledby="support-title">
+  <div class="wrap">
+    <div class="head">
+      <div><p class="eyebrow">문제 해결 · 지원</p><h2 id="support-title">막히면 진단 로그부터</h2></div>
+      <p>메뉴 → 도움말 → <b>진단 로그 내보내기</b>가 데스크탑에 텍스트 파일을 만듭니다. 그 파일을 첨부해 이슈를 남겨 주세요.</p>
+    </div>
+    <details><summary>양쪽 Bluetooth 설정은 "연결됨"인데 앱은 연결 끊김을 반복해요</summary><p>앱이 HID 서비스를 등록하기 전에 iMac이 연결해 오면 macOS가 그 연결을 대신 받습니다. 앱의 Bluetooth 권한 창에 먼저 응답하고, 메뉴에서 iMac 이름을 눌러 다시 연결하세요. 앱은 등록될 때까지 1초마다 재시도합니다.</p></details>
+    <details><summary>Caps Lock으로 한/영이 안 바뀌어요</summary><p>iMac의 시스템 설정 → 키보드에 "🌐 키를 눌러 입력 소스 변경"이 켜져 있어야 합니다. 안 되면 메뉴 → 설정 → Caps Lock → iMac에서 <b>⌃스페이스</b>를 고르세요. 이 경우 iMac의 키보드 단축키 → 입력 소스에서 "이전 입력 소스 선택"이 켜져 있어야 합니다.</p></details>
+    <details><summary>트랙패드가 느려요</summary><p>메뉴 → 설정 → 포인터 배율을 2×~3×로 올리세요. iMac 쪽 시스템 설정 → 마우스 → 이동 속도도 함께 조정합니다.</p></details>
+    <details><summary>앱을 새로 설치했더니 권한을 다시 물어요</summary><p>서명 인증서가 없는 빌드라 macOS가 버전마다 새 앱으로 봅니다. 손쉬운 사용·입력 모니터링을 다시 허용하면 됩니다.</p></details>
+    <details><summary>iMac에서 새 키보드로 인식되지 않아요 (버전 업데이트 후)</summary><p>iMac은 처음 페어링할 때 받은 키보드 구조를 기억합니다. iMac의 Bluetooth 설정에서 이 MacBook을 삭제하고 다시 페어링하세요.</p></details>
+    <div class="cta" style="margin-top:var(--space-2)">
+      <a class="btn btn-primary" href="https://github.com/newids/bts-key-imac/issues">이슈 남기기</a>
+      <a class="btn" style="border:1.5px solid var(--line)" href="https://github.com/newids/bts-key-imac/blob/main/docs/usage.md">자세한 사용 문서</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 newid · MIT</span>
+    <a href="https://github.com/newids/bts-key-imac">GitHub</a>
+    <a href="https://github.com/newids/bts-key-imac/releases">모든 릴리스</a>
+    <span style="margin-left:auto" id="version"></span>
+  </div>
+</footer>
+
+<script>
+(async () => {
+  // Point the download button at the latest DMG; fall back to the releases page.
+  try {
+    const r = await fetch("https://api.github.com/repos/newids/bts-key-imac/releases/latest", { headers: { Accept: "application/vnd.github+json" } });
+    if (!r.ok) return;
+    const rel = await r.json();
+    const dmg = (rel.assets || []).find(a => a.name.endsWith(".dmg"));
+    if (dmg) {
+      document.getElementById("download").href = dmg.browser_download_url;
+      document.getElementById("download").querySelector("span").textContent = `macOS용 다운로드 · ${rel.tag_name}`;
+      document.getElementById("meta").textContent = `macOS 13 이상 · Apple 실리콘·Intel · ${(dmg.size / 1048576).toFixed(1)} MB · 무료, MIT`;
+      document.getElementById("version").textContent = `최신 버전 ${rel.tag_name}`;
+    }
+  } catch (_) { /* offline or rate limited: the releases page link still works */ }
+})();
+</script>
+</body>
+</html>
