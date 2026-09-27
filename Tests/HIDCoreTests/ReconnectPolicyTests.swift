@@ -29,3 +29,23 @@ final class ReconnectPolicyTests: XCTestCase {
         XCTAssertEqual(policy.attempt, 2)
     }
 }
+
+final class ReconnectPolicyLimitTests: XCTestCase {
+    func testStopsHandingOutDelaysAfterTheAttemptLimit() {
+        var policy = ReconnectPolicy(initialDelay: 1, maximumDelay: 4, maximumAttempts: 3)
+        XCTAssertNotNil(policy.nextDelayIfAllowed())
+        XCTAssertNotNil(policy.nextDelayIfAllowed())
+        XCTAssertNotNil(policy.nextDelayIfAllowed())
+        XCTAssertTrue(policy.isExhausted)
+        XCTAssertNil(policy.nextDelayIfAllowed())
+    }
+
+    func testResetLiftsTheLimit() {
+        var policy = ReconnectPolicy(initialDelay: 1, maximumDelay: 4, maximumAttempts: 1)
+        _ = policy.nextDelayIfAllowed()
+        XCTAssertTrue(policy.isExhausted)
+        policy.reset()
+        XCTAssertFalse(policy.isExhausted)
+        XCTAssertEqual(policy.nextDelayIfAllowed(), 1)
+    }
+}

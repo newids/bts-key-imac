@@ -24,9 +24,22 @@ public final class EventTapCapture {
     /// Called for every swallowed motion event so the local pointer can be pinned in place.
     public var onPointerMotion: (() -> Void)?
 
-    public var hotkey: Hotkey = .default
-    public var pointerScaler = PointerScaler()
-    public var capsLockMapping = CapsLockMapping.defaultMapping
+    // Settings are written on the main thread and read on the input thread; `stateLock` covers both.
+    public var hotkey: Hotkey {
+        get { stateLock.withLock { _hotkey } }
+        set { stateLock.withLock { _hotkey = newValue } }
+    }
+    public var pointerScaler: PointerScaler {
+        get { stateLock.withLock { _pointerScaler } }
+        set { stateLock.withLock { _pointerScaler = newValue } }
+    }
+    public var capsLockMapping: CapsLockMapping {
+        get { stateLock.withLock { _capsLockMapping } }
+        set { stateLock.withLock { _capsLockMapping = newValue } }
+    }
+    private var _hotkey: Hotkey = .default
+    private var _pointerScaler = PointerScaler()
+    private var _capsLockMapping = CapsLockMapping.defaultMapping
     public var isCapturing = false {
         didSet {
             guard isCapturing != oldValue else { return }
@@ -89,7 +102,9 @@ public final class EventTapCapture {
         self.tap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        InputThread.shared.sync {
+            CFRunLoopAddSource(InputThread.shared.runLoop, source, .commonModes)
+        }
         CGEvent.tapEnable(tap: tap, enable: true)
         capsLock.onChange = { [weak self] isDown in self?.handleCapsLock(isDown: isDown) }
         if !capsLock.start() {
@@ -103,7 +118,9 @@ public final class EventTapCapture {
         stopMouseTimer()
         capsLock.stop()
         if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            InputThread.shared.sync {
+                CFRunLoopRemoveSource(InputThread.shared.runLoop, source, .commonModes)
+            }
         }
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
@@ -131,7 +148,15 @@ public final class EventTapCapture {
 
     // MARK: - Event handling (runs on the main run loop)
 
+    /// `isCapturing` as seen from the input thread (the property itself is main-thread state).
+    private var isCapturingNow: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return isCapturingForTimer
+    }
+
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let isCapturing = isCapturingNow
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
@@ -173,7 +198,7 @@ public final class EventTapCapture {
             swallowHotkeyKeyUp = false
             return nil
         }
-        guard isCapturing else { return Unmanaged.passUnretained(event) }
+        guard isCapturingNow else { return Unmanaged.passUnretained(event) }
         if isAutorepeat { return nil }
         guard let usage = MacKeycodeMap.usage(forVirtualKey: keyCode) else { return nil }
 
@@ -197,8 +222,8 @@ public final class EventTapCapture {
         }
         if keyCode == Self.capsLockKeyCode {
             // Fallback without the HID monitor: the flag change carries no timing, so emit a tap.
-            reports = capsLockMapping.reports(isDown: true, state: &keyboard)
-                + capsLockMapping.reports(isDown: false, state: &keyboard)
+            reports = _capsLockMapping.reports(isDown: true, state: &keyboard)
+                + _capsLockMapping.reports(isDown: false, state: &keyboard)
         } else if keyCode == Self.functionKeyCode {
             keyboard.setFn(held: event.flags.contains(.maskSecondaryFn), by: .fnKey)
             reports = [keyboard.report]
@@ -209,9 +234,9 @@ public final class EventTapCapture {
     }
 
     private func handleCapsLock(isDown: Bool) {
-        guard isCapturing else { return }
+        guard isCapturingNow else { return }
         stateLock.lock()
-        let reports = capsLockMapping.reports(isDown: isDown, state: &keyboard)
+        let reports = _capsLockMapping.reports(isDown: isDown, state: &keyboard)
         stateLock.unlock()
         reports.forEach { onKeyboardReport?($0) }
     }

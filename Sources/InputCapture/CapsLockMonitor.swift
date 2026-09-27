@@ -39,11 +39,16 @@ public final class CapsLockMonitor {
             let monitor = Unmanaged<CapsLockMonitor>.fromOpaque(context).takeUnretainedValue()
             monitor.onChange?(IOHIDValueGetIntegerValue(value) != 0)
         }, context)
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-        let status = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        var status = kIOReturnSuccess
+        InputThread.shared.sync {
+            IOHIDManagerScheduleWithRunLoop(manager, InputThread.shared.runLoop, CFRunLoopMode.commonModes.rawValue)
+            status = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            if status != kIOReturnSuccess {
+                IOHIDManagerUnscheduleFromRunLoop(manager, InputThread.shared.runLoop, CFRunLoopMode.commonModes.rawValue)
+            }
+        }
         guard status == kIOReturnSuccess else {
             log.error("Caps Lock monitor could not open HID manager: \(status, privacy: .public)")
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
             return false
         }
         self.manager = manager
@@ -52,8 +57,10 @@ public final class CapsLockMonitor {
 
     public func stop() {
         guard let manager else { return }
-        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
-        IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        InputThread.shared.sync {
+            IOHIDManagerUnscheduleFromRunLoop(manager, InputThread.shared.runLoop, CFRunLoopMode.commonModes.rawValue)
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
         self.manager = nil
     }
 }

@@ -27,7 +27,9 @@ final class SessionController {
     /// Starts at 4 s: a host that just dropped the link often reconnects by itself (or the user clicks
     /// "Connect" on the iMac), and an immediate outbound attempt from here collides with it.
     /// Capped at 10 s so a sleeping iMac is picked up soon after it wakes to its lock screen.
-    private var reconnectPolicy = ReconnectPolicy(initialDelay: 4, maximumDelay: 10)
+    private var reconnectPolicy = ReconnectPolicy(initialDelay: 4, maximumDelay: 10, maximumAttempts: 5)
+    /// True after the unattended retry budget is spent; the app then only listens for the host.
+    private(set) var isWaitingForHost = false
     private var reconnectWork: DispatchWorkItem?
     private var resumePolicy = RemoteResumePolicy()
 
@@ -148,6 +150,7 @@ final class SessionController {
 
     private func attemptConnection() {
         cancelRetry()
+        isWaitingForHost = false
         onError?(nil)
         dispatch(.connectRequested)
         transport.connect()
@@ -156,7 +159,16 @@ final class SessionController {
     private func scheduleRetry() {
         guard settings.wantsConnection else { return }
         reconnectWork?.cancel()
-        let delay = reconnectPolicy.nextDelay()
+        guard let delay = reconnectPolicy.nextDelayIfAllowed() else {
+            // Stop paging a host that keeps refusing; it will connect to us when it wants a keyboard.
+            isWaitingForHost = true
+            nextRetry = nil
+            log.notice("automatic retries exhausted; waiting for the host or the user")
+            onError?("자동 재시도를 멈췄습니다. iMac 쪽에서 연결하거나 메뉴에서 다시 연결하세요.")
+            onStateChange?(machine.state)
+            return
+        }
+        isWaitingForHost = false
         nextRetry = Date().addingTimeInterval(delay)
         log.info("retry #\(self.reconnectPolicy.attempt, privacy: .public) in \(delay, privacy: .public)s")
         let work = DispatchWorkItem { [weak self] in
@@ -259,6 +271,7 @@ extension SessionController: HIDTransportDelegate {
         settings.wantsConnection = true
         rememberHost(address: hostAddress, name: hostName)
         cancelRetry()
+        isWaitingForHost = false
         reconnectPolicy.reset()
         onError?(nil)
         // Keep the link even without permissions: dropping it looks like "connects then disconnects" on the iMac.

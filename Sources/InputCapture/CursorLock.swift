@@ -9,6 +9,7 @@ import CoreGraphics
 /// every motion event (motion deltas are read from the event, so they are unaffected),
 /// and hidden with the window server's background-cursor property, as KVM tools do.
 public final class CursorLock {
+    private let mutex = NSLock()
     private var anchor: CGPoint?
     private var isHidden = false
     private var lastPin = Date.distantPast
@@ -17,29 +18,32 @@ public final class CursorLock {
 
     public init() {}
 
-    public var isLocked: Bool { anchor != nil }
+    public var isLocked: Bool { mutex.withLock { anchor != nil } }
 
     public func lock() {
-        guard anchor == nil else { return }
-        anchor = CGEvent(source: nil)?.location
+        guard mutex.withLock({ anchor == nil }) else { return }
+        let position = CGEvent(source: nil)?.location
+        mutex.withLock { anchor = position }
         // Warps normally suppress local input for 0.25 s; the pointer must keep reporting deltas.
         CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0
         CGAssociateMouseAndMouseCursorPosition(0)
         hideCursor()
     }
 
-    /// Call from the event tap for every motion event while locked.
+    /// Called from the input thread for every motion event while locked.
     public func pin() {
-        guard let anchor else { return }
-        let now = Date()
-        guard now.timeIntervalSince(lastPin) >= Self.minimumPinInterval else { return }
-        lastPin = now
-        CGWarpMouseCursorPosition(anchor)
+        let target: CGPoint? = mutex.withLock {
+            guard let anchor else { return nil }
+            let now = Date()
+            guard now.timeIntervalSince(lastPin) >= Self.minimumPinInterval else { return nil }
+            lastPin = now
+            return anchor
+        }
+        if let target { CGWarpMouseCursorPosition(target) }
     }
 
     public func unlock() {
-        guard let anchor else { return }
-        self.anchor = nil
+        guard let anchor = mutex.withLock({ () -> CGPoint? in let a = anchor; anchor = nil; return a }) else { return }
         CGAssociateMouseAndMouseCursorPosition(1)
         CGWarpMouseCursorPosition(anchor)
         showCursor()

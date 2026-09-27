@@ -46,6 +46,7 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     private var graceWork: DispatchWorkItem?
     private var isResettingLink = false
     private var resetPoll: DispatchWorkItem?
+    private var linkStatePoll: DispatchWorkItem?
     private static let resetPollInterval: TimeInterval = 0.25
     private static let resetMaxPolls = 20
     private var aclDisconnectNotification: IOBluetoothUserNotification?
@@ -185,16 +186,32 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         guard isOutboundInFlight, let current = self.device,
               device?.addressString == current.addressString else { return }
         guard status == kIOReturnSuccess else { return fail(.connectionFailed(code: status)) }
-        // A successful completion proves the baseband link is up; isConnected() lags behind it.
-        openOutbound(psm: SDPRecordBuilder.controlPSM, linkKnownUp: true)
+        // isConnected() lags the completion; opening before it agrees makes IOBluetooth wait
+        // synchronously on the main thread (seen as a 9 s stall), so poll briefly instead.
+        waitForLinkState(remaining: Self.linkStatePolls)
     }
 
-    private func openOutbound(psm: UInt16, linkKnownUp: Bool = false) {
+    private static let linkStatePollInterval: TimeInterval = 0.1
+    private static let linkStatePolls = 30
+
+    private func waitForLinkState(remaining: Int) {
+        guard isOutboundInFlight, let device else { return }
+        if device.isConnected() {
+            openOutbound(psm: SDPRecordBuilder.controlPSM)
+            return
+        }
+        guard remaining > 0 else { return fail(.linkClosed) }
+        let work = DispatchWorkItem { [weak self] in self?.waitForLinkState(remaining: remaining - 1) }
+        linkStatePoll = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.linkStatePollInterval, execute: work)
+    }
+
+    private func openOutbound(psm: UInt16) {
         guard isOutboundInFlight, let device else { return }
         // Never ask for a channel without a live baseband link: IOBluetooth then re-pages the
         // host and waits for the channel *synchronously on the main thread*, freezing the app
-        // (and the event tap) for as long as the host stays silent. Seen in a sample of the app.
-        guard linkKnownUp || device.isConnected() else { return fail(.linkClosed) }
+        // for as long as the host stays silent. Seen in a sample of the app.
+        guard device.isConnected() else { return fail(.linkClosed) }
         var channel: IOBluetoothL2CAPChannel?
         let status = device.openL2CAPChannelAsync(&channel, withPSM: BluetoothL2CAPPSM(psm), delegate: self)
         guard status == kIOReturnSuccess, let channel else {
@@ -352,6 +369,8 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         graceWork = nil
         resetPoll?.cancel()
         resetPoll = nil
+        linkStatePoll?.cancel()
+        linkStatePoll = nil
         isResettingLink = false
         aclDisconnectNotification?.unregister()
         aclDisconnectNotification = nil
