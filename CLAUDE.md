@@ -1,0 +1,43 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project goal
+
+A macOS menu bar app that makes a MacBook appear to an iMac as a Bluetooth keyboard and pointing device, with nothing installed on the iMac (it is a managed machine). Priorities: (1) keyboard forwarding, (2) trackpad as mouse, (3) clear local/remote mode switching. Windows support is a secondary, analyzed-only concern.
+
+The full analysis and design, including the chosen transport (Bluetooth Classic HID via IOBluetooth as plan A, proven on the target iMac by the KeyPad app; BLE HID over GATT as plan B and the Windows path), SDP record, GATT layout, report IDs, the trackpad performance design, module boundaries (`HIDCore` / `ClassicHIDTransport` / `BLETransport` / `InputCapture` / `App`), the mode-switch state machine, the Windows single-source verdict, and the validation spikes to run before implementation, lives in `docs/analysis-and-design.md`. Read it before touching code; it is the source of truth for report formats and state transitions.
+
+## Commands
+
+```bash
+swift build                                   # build all targets
+swift test                                    # run all unit tests (HIDCore + SDP record builder)
+swift test --filter HIDCoreTests              # one test target
+swift test --filter KeyboardReportTests/testStatePressAndReleaseProducesReports   # one test
+./scripts/build-app.sh                        # release build -> build/BTSKey.app (ad-hoc signed; renders build/AppIcon.icns via scripts/make-icon.swift)
+./scripts/build-dmg.sh                        # build-app + drag-to-Applications DMG in build/ (SIGN_IDENTITY / NOTARY_PROFILE optional; see docs/distribution.md)
+defaults delete kr.newid.btskey hasCompletedOnboarding   # make the first-run guide show again
+open build/BTSKey.app                         # run the menu bar app
+/usr/bin/log stream --level info --predicate 'subsystem == "btskey"' --style compact   # runtime logs; use /usr/bin/log because zsh has a builtin `log`
+```
+
+No signing identity exists on this machine, so the app is ad-hoc signed and macOS treats every rebuild as a new app for Accessibility / Input Monitoring: re-grant both in System Settings → Privacy & Security after each `build-app.sh`. `SIGN_IDENTITY=... ./scripts/build-app.sh` uses a real certificate when one is available.
+
+## Architecture
+
+SwiftPM package, four targets with a strict dependency direction (`HIDCore` has no Apple framework imports beyond Foundation and holds almost all unit tests):
+
+- `Sources/HIDCore` — report descriptor (single source of truth for byte layouts), `KeyboardState`/`KeyboardReport` (6KRO plus a trailing Apple vendor Fn/🌐 byte, 9 bytes), `CapsLockMapping` (Caps Lock → 🌐 hold / ⌃Space tap / Caps Lock; Mac hosts remap Caps Lock per keyboard, so the conversion happens on the MacBook), `MouseAccumulator`/`MouseReport` (Int16 deltas, fractional carry, never drops motion), `MacKeycodeMap` (kVK → HID usage), `HIDPFrame` (Bluetooth HID profile framing/parsing), `SessionStateMachine` (pure reducer for idle/connecting/local/remote/disconnected; every exit from remote emits `unlockCursor`, and `sendAllUp` too whenever the link is still up to carry it).
+- `Sources/ClassicHIDTransport` — `HIDTransport` protocol plus the Bluetooth Classic implementation. It publishes the SDP HID record (`SDPRecordBuilder`, service class 0x1124, subclass 0xC0) **once per app lifetime** (remove + re-publish fails because bluetoothd keeps the PSMs registered), listens for host-initiated L2CAP 0x11/0x13 channels and accepts them from any paired host unless the user paused (the iMac reconnects to its bonded keyboard on its own, e.g. "Connect" in the iMac's Bluetooth settings; without a published record macOS' own HID host grabs that connection; the user moves between lab iMacs, so `SessionController` adopts whichever host connects as the new target), and can also open both channels outbound. Channels are identified by PSM and host address (`HIDChannelRole`), never by object identity: IOBluetooth hands a host-initiated channel to the open notification and to delegate callbacks as different objects, and identity checks silently dropped the iMac's SET_PROTOCOL so it closed the link after 3 s. It answers control-channel requests and writes `0xA1 | reportID | payload` on the interrupt channel. IOBluetooth objects only work from the main thread (a background thread gets `kIOReturnError`), so everything runs on main with async APIs; `send` hops to main and uses `writeAsync` with a heap buffer freed in `l2capChannelWriteComplete`. The SDP publish is retried every second (the attempt right after the Bluetooth permission prompt fails), and a successful `connectionComplete` is trusted over `isConnected()`, which lags. Channels opened on a baseband link this process did not establish (e.g. one macOS' own HID host holds, which is what both Bluetooth settings panes show as "Connected") are closed by IOBluetooth within milliseconds, so if the ACL already exists and the host opens no channels within 1.5 s the transport drops the ACL and reconnects afresh. Errors carry `isRetryable`; `SessionController` retries retryable ones with `ReconnectPolicy` backoff (4→10 s) and a 15 s connect watchdog lives in the transport. Evidence for all of this is in `docs/connection-audit.md`.
+- `Sources/InputCapture` — `EventTapCapture` (session-level CGEvent tap; passes everything through except the toggle hotkey when not capturing, swallows everything when capturing; pointer motion coalesced on an 8 ms timer, buttons flushed immediately; Caps Lock synthesized as press+release from flagsChanged; left/right modifiers distinguished via NX device bits so right-⌘ Korean toggle works), `CapsLockMonitor` (IOHIDManager on the Caps Lock usage: with "Caps Lock switches input source" a short tap never changes the Caps Lock flag, so the event tap alone cannot forward 한/영 taps), `InputSourceKeeper` (restores the MacBook's input source after remote mode), `CursorLock` (a background app cannot freeze or hide the pointer with the public calls, so the pointer is warped back on every swallowed motion event and hidden via the `SetsCursorInBackground` connection property), `Hotkey` (default ⌥⌘K), `InputPermissions`. The 8 ms mouse timer only runs in remote mode.
+- `Sources/BTSKeyApp` — AppKit menu bar app. `StatusMenuController` composes the menu: `DeviceMenuSection` (known hosts from `Settings.knownHosts`, icon per `BluetoothDeviceKind`, other paired computers in a submenu), settings and help submenus, About. `OnboardingWindowController` hosts the SwiftUI `OnboardingView` (steps from `OnboardingStep` in HIDCore; `OnboardingModel` polls `AppPermission` status) and is shown on first launch or from Help. `SupportActions` holds the About panel, the `SMAppService` login item, and diagnostics export (app log + Bluetooth inventory to the Desktop). `AppInfo` holds version and support URLs. `SessionController` records every connected host into `Settings.knownHosts` and is the only place that mutates session state (it also re-enters remote mode via `RemoteResumePolicy` when a link that dropped during remote mode returns within 30 min, so an iMac waking to its login screen gets the keyboard back): it feeds `SessionEvent`s to the state machine and performs the returned `SessionEffect`s (transport, cursor lock, HUD). `StatusMenuController` renders the three-state icon and menu; `Settings` wraps UserDefaults; `HUDWindow` is the 1 s mode-change overlay; `RemoteStatusOverlay` is the box pinned under the status item for the whole remote mode; `PowerSaver` dims the built-in display via private DisplayServices (resolved with dlsym) per `PowerSaveMode` and persists the brightness to restore after a crash.
+
+Changing `ReportDescriptor` may need the iMac to forget and re-pair this Mac, because the host appears to cache the descriptor from pairing time.
+
+Runtime prerequisites: the iMac must already be Bluetooth-paired (bonded) with this Mac, the app needs Accessibility + Input Monitoring, and KeyPad must not be running (it publishes a competing HID record on the same link).
+
+## Conventions that already apply
+
+- Global user rules in `~/.claude/rules/` (TDD, 80% coverage, conventional commits, immutability, file size limits) apply here; do not duplicate them in this file.
+- Commit format: `<type>: <description>` (feat, fix, refactor, docs, test, chore, perf, ci).

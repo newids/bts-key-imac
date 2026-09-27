@@ -1,0 +1,28 @@
+/// macOS virtual key codes (kVK_*) → USB HID Keyboard/Keypad usages (page 0x07).
+/// Modifier keys map to 0xE0–0xE7 so callers can route them through `KeyboardModifiers`.
+public enum MacKeycodeMap {
+    public static func usage(forVirtualKey virtualKey: Int) -> UInt8? {
+        table[virtualKey]
+    }
+
+    private static let table: [Int: UInt8] = [
+        0: 0x04, 1: 0x16, 2: 0x07, 3: 0x09, 4: 0x0B, 5: 0x0A, 6: 0x1D, 7: 0x1B,      // A S D F H G Z X
+        8: 0x06, 9: 0x19, 10: 0x64, 11: 0x05, 12: 0x14, 13: 0x1A, 14: 0x08, 15: 0x15, // C V § B Q W E R
+        16: 0x1C, 17: 0x17, 18: 0x1E, 19: 0x1F, 20: 0x20, 21: 0x21, 22: 0x23, 23: 0x22, // Y T 1 2 3 4 6 5
+        24: 0x2E, 25: 0x26, 26: 0x24, 27: 0x2D, 28: 0x25, 29: 0x27, 30: 0x30, 31: 0x12, // = 9 7 - 8 0 ] O
+        32: 0x18, 33: 0x2F, 34: 0x0C, 35: 0x13, 36: 0x28, 37: 0x0F, 38: 0x0D, 39: 0x34, // U [ I P Return L J '
+        40: 0x0E, 41: 0x33, 42: 0x31, 43: 0x36, 44: 0x38, 45: 0x11, 46: 0x10, 47: 0x37, // K ; \ , / N M .
+        48: 0x2B, 49: 0x2C, 50: 0x35, 51: 0x2A, 53: 0x29,                               // Tab Space ` Backspace Esc
+        54: 0xE7, 55: 0xE3, 56: 0xE1, 57: 0x39, 58: 0xE2, 59: 0xE0,                     // R⌘ ⌘ ⇧ Caps ⌥ ⌃
+        60: 0xE5, 61: 0xE6, 62: 0xE4,                                                   // R⇧ R⌥ R⌃
+        64: 0x6C, 65: 0x63, 67: 0x55, 69: 0x57, 71: 0x53, 75: 0x54, 76: 0x58, 78: 0x56, // F17 KP. KP* KP+ Clear KP/ KPEnter KP-
+        79: 0x6D, 80: 0x6E, 81: 0x67, 82: 0x62, 83: 0x59, 84: 0x5A, 85: 0x5B, 86: 0x5C, // F18 F19 KP= KP0..KP4
+        87: 0x5D, 88: 0x5E, 89: 0x5F, 90: 0x6F, 91: 0x60, 92: 0x61,                     // KP5..KP7 F20 KP8 KP9
+        93: 0x89, 94: 0x87, 95: 0x85,                                                   // JIS ¥ _ KP,
+        96: 0x3E, 97: 0x3F, 98: 0x40, 99: 0x3C, 100: 0x41, 101: 0x42,                   // F5 F6 F7 F3 F8 F9
+        102: 0x91, 103: 0x44, 104: 0x90, 105: 0x68, 106: 0x6B, 107: 0x69,               // Eisu F11 Kana F13 F16 F14
+        109: 0x43, 110: 0x65, 111: 0x45, 113: 0x6A, 114: 0x49, 115: 0x4A,               // F10 Menu F12 F15 Help/Ins Home
+        116: 0x4B, 117: 0x4C, 118: 0x3D, 119: 0x4D, 120: 0x3B, 121: 0x4E,               // PgUp FwdDel F4 End F2 PgDn
+        122: 0x3A, 123: 0x50, 124: 0x4F, 125: 0x51, 126: 0x52,                          // F1 ← → ↓ ↑
+    ]
+}
