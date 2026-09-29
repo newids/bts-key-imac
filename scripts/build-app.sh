@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
 APP_NAME="BTSKey"
 BUNDLE_ID="${BUNDLE_ID:-kr.newid.btskey}"
-VERSION="${VERSION:-$(cat VERSION 2>/dev/null || echo 0.1.0)}"
+VERSION="${VERSION:-$(cat VERSION 2>/dev/null || echo 0.0.0)}"   # 0.0.0 marks a build without a VERSION file
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 OUT="build/${APP_NAME}.app"
 ICON="build/AppIcon.icns"

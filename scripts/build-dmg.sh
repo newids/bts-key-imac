@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 # A disk image for other people is never signed with the development certificate of this Mac.
 DEV_IDENTITY="" ./scripts/build-app.sh release
-VERSION="${VERSION:-$(cat VERSION 2>/dev/null || echo 0.1.0)}"
+VERSION="${VERSION:-$(cat VERSION 2>/dev/null || echo 0.0.0)}"   # 0.0.0 marks a build without a VERSION file
 APP="build/BTSKey.app"
 STAGING="build/dmg"
 

@@ -5,7 +5,7 @@
 ## 만들기
 
 ```bash
-echo 0.2.0 > VERSION            # 버전 올리기
+echo <새 버전> > VERSION        # 버전 올리기
 ./scripts/build-dmg.sh          # build/BTSKey-<버전>.dmg 와 .sha256
 ```
 

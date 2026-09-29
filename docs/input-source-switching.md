@@ -50,7 +50,7 @@ iMac 자체 키보드에서는 Caps Lock이 🌐로 바뀌어 한/영이 전환�
 | LANG1 0x90 | 일본어 かな 키로 처리. 한/영 전환 근거 없음 | 스캔 코드 0xF2 → VK_HANGUL | Windows: 한국어 자판 | Apple 변환표, Microsoft 변환표 |
 | 오른쪽 Alt 0xE6 | Option | 101키 종류 1 자판에서 한/영 전환 | 없음 | Microsoft 한국어 IME 문서 |
 
-🌐 바이트가 호스트마다 다르게 동작하는 이유: macOS의 HID 드라이버는 기기에 `AppleVendorSupported` 속성이 있을 때만 이 바이트를 Fn으로 저장한다. 이 속성은 공개되지 않은 Apple 드라이버가 붙이며, 어떤 조건에서 붙는지는 확인하지 못했다. 앱이 보내는 디스크립터와 리포트는 0.1.0부터 바뀌지 않았다.
+🌐 바이트가 호스트마다 다르게 동작하는 이유: macOS의 HID 드라이버는 기기에 `AppleVendorSupported` 속성이 있을 때만 이 바이트를 Fn으로 저장한다. 이 속성은 공개되지 않은 Apple 드라이버가 붙이며, 어떤 조건에서 붙는지는 확인하지 못했다. 앱이 보내는 디스크립터와 리포트는 첫 공개 빌드부터 바뀌지 않았다.
 
 ## 실기 결과 (iMac-D, macOS 15.7.4)
 
@@ -122,7 +122,7 @@ for k in Product Transport HIDVirtualDevice HIDSubinterfaceID Built-In; do hidut
 ## 남은 일
 
 1. **Windows**: 조사로는 오른쪽 Alt(0xE6)가 한국어 IME 기본 설정에서 한/영을 바꾸고, LANG1(0x90)이 대안이다. 둘을 함께 보내면 두 번 전환된다. 실기 확인은 하지 않았다.
-2. 이전 iMac(iMac-A~C)에서 🌐 바이트가 동작했는지는 확인하지 못했다. 디스크립터와 리포트는 0.1.0부터 같다.
+2. 이전 iMac(iMac-A~C)에서 🌐 바이트가 동작했는지는 확인하지 못했다. 디스크립터와 리포트는 첫 공개 빌드부터 같다.
 
 ## 출처
 
