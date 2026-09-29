@@ -82,6 +82,7 @@ struct OnboardingView: View {
         case .permissions: PermissionsPage(model: model)
         case .pairing: PairingPage()
         case .connect: ConnectPage(model: model)
+        case .inputSource: InputSourcePage()
         case .finish: FinishPage(model: model)
         }
     }
@@ -106,7 +107,7 @@ struct OnboardingView: View {
 private struct WelcomePage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            FeatureRow(symbol: "keyboard", title: "키보드", text: "MacBook에서 치는 모든 키가 iMac으로 갑니다. Caps Lock 한/영 전환도 됩니다.")
+            FeatureRow(symbol: "keyboard", title: "키보드", text: "MacBook에서 치는 모든 키가 iMac으로 갑니다. Caps Lock 한/영 전환은 연결한 뒤 iMac에서 한 번 설정합니다.")
             FeatureRow(symbol: "hand.point.up.left", title: "트랙패드", text: "이동·클릭·두 손가락 스크롤을 iMac의 마우스로 전달합니다.")
             FeatureRow(symbol: "arrow.left.arrow.right", title: "한 번에 전환", text: "단축키 하나로 MacBook과 iMac 사이를 오갑니다. 현재 상태는 메뉴바 아래 상자로 항상 보입니다.")
             FeatureRow(symbol: "lock.open.laptopcomputer", title: "iMac에는 설치 없음", text: "관리형 iMac이라도 블루투스 페어링만으로 씁니다.")
@@ -146,12 +147,12 @@ private struct PermissionsPage: View {
 private struct PairingPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            StepRow(number: 1, text: "iMac에서 시스템 설정 → Bluetooth를 엽니다.")
-            StepRow(number: 2, text: "근처 기기 목록에서 이 MacBook을 골라 페어링합니다. 양쪽에 같은 숫자가 보이면 승인합니다.")
-            StepRow(number: 3, text: "MacBook 쪽 Bluetooth 설정에서도 iMac이 '나의 기기'에 나타나는지 확인합니다.")
+            StepRow(number: 1, text: "MacBook의 Bluetooth 설정을 열어 둡니다. MacBook은 이 화면이 열려 있는 동안에만 iMac에서 검색됩니다.")
+            StepRow(number: 2, text: "iMac에서 시스템 설정 → Bluetooth를 열고, 근처 기기에 나타난 이 MacBook 옆 연결을 누릅니다.")
+            StepRow(number: 3, text: "양쪽에 같은 숫자가 보이면 승인합니다.")
             Button("MacBook의 Bluetooth 설정 열기…") { SystemSettingsLinks.open(SystemSettingsLinks.bluetooth) }
                 .padding(.top, 4)
-            Text("한 번 페어링하면 다음부터는 iMac이 알아서 다시 연결합니다.").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("페어링이 끝나면 이 앱이 새 iMac을 알아채고 스스로 연결합니다.").font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }
 }
@@ -179,6 +180,26 @@ private struct ConnectPage: View {
                 Text("iMac에 로그인 화면이 떠 있어도 됩니다.").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .padding(.top, 4)
+        }
+    }
+}
+
+/// The one setting the host needs, in the words of its own System Settings.
+private struct InputSourcePage: View {
+    private var macName: String { Host.current().localizedName ?? "이 MacBook" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            StepRow(number: 1, text: "iMac에 연결된 상태에서, iMac의 시스템 설정 → 키보드 → 키보드 단축키… → 보조 키를 엽니다.")
+            StepRow(number: 2, text: "맨 위 ‘키보드 선택’ 단추를 눌러 목록을 펼칩니다. 고를 이름은 “\(macName)”입니다.")
+            StepRow(number: 3, text: "‘Caps Lock 키’를 ‘🌐 fn 기능’으로 바꾸고 완료를 누릅니다.")
+            StepRow(number: 4, text: "iMac의 키보드 설정에서 ‘🌐 키를 누를 때’가 ‘입력 소스 변경’인지 확인합니다.")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("iMac의 다른 키보드에 해 둔 설정은 이 MacBook에 적용되지 않습니다. iMac의 설정이 초기화되면 다시 합니다.")
+                Text("이 앱의 메뉴 → 설정 → Caps Lock → iMac은 ‘Caps Lock 그대로’로 둡니다. MacBook의 한/영도 함께 바뀌지만, iMac 입력을 마치면 원래대로 돌아옵니다.")
+            }
+            .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 2)
         }
     }
 }

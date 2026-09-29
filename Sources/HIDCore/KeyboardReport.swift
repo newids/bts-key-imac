@@ -23,8 +23,9 @@ public struct KeyboardModifiers: OptionSet, Hashable, Sendable {
 }
 
 /// Keyboard input report: 1 byte modifiers, 1 reserved byte, 6 key usages (6KRO),
-/// then 1 byte for Apple's Fn/🌐 key (vendor page 0xFF, usage 0x03). A Mac host
-/// only offers "Press 🌐 to change input source" for a keyboard that has this key.
+/// then 1 byte for Apple's Fn/🌐 key (vendor page 0xFF, usage 0x03). A Mac host honours
+/// that byte only for keyboards it marks as Apple's (`AppleVendorSupported`); a host that
+/// treats this one as a generic Bluetooth keyboard drops it.
 public struct KeyboardReport: Equatable, Sendable {
     public static let maximumKeys = 6
     public static let byteCount = 9

@@ -24,13 +24,14 @@ final class SessionController {
     private let powerSaver = PowerSaver()
     private let inputSources = InputSourceKeeper()
     private let log = Logger(subsystem: "btskey", category: "session")
-    /// Starts at 4 s: a host that just dropped the link often reconnects by itself (or the user clicks
-    /// "Connect" on the iMac), and an immediate outbound attempt from here collides with it.
-    /// Capped at 10 s so a sleeping iMac is picked up soon after it wakes to its lock screen.
+    /// One retry, 4 s later: a host that just dropped the link often reconnects by itself (or the
+    /// user clicks "Connect" on the iMac), and an immediate outbound attempt collides with it.
     private var reconnectPolicy = ReconnectPolicy.unattended
-    let pairing = PairedDeviceWatcher()
-    /// True after the unattended retry budget is spent; the app then only listens for the host.
-    private(set) var isWaitingForHost = false
+    /// Keeps a host that pages this Mac over and over from restarting the attempts each time.
+    private var hostCuePolicy = HostCuePolicy()
+    let pairing: PairedDeviceWatcher
+    /// True after the unattended attempts are spent; only the user starts the next one.
+    private(set) var isWaitingForUser = false
     private var reconnectWork: DispatchWorkItem?
     private var resumePolicy = RemoteResumePolicy()
     private var hostCueWork: DispatchWorkItem?
@@ -40,6 +41,7 @@ final class SessionController {
     init(settings: Settings, transport: HIDTransport) {
         self.settings = settings
         self.transport = transport
+        pairing = PairedDeviceWatcher(settings: settings)
         transport.delegate = self
         applySettings()
         wireCapture()
@@ -48,29 +50,18 @@ final class SessionController {
     }
 
     /// The standard "move to another iMac" flow: pair it in Bluetooth settings, and the app
-    /// adopts it as the target and connects when no link is up. A forgotten pairing stops
+    /// adopts it as the target and connects unless a link is in use. A forgotten pairing stops
     /// every retry at once, even mid-backoff.
     private func wirePairingWatcher() {
-        pairing.onAdded = { [weak self] computer in
-            guard let self else { return }
-            let isBusy = self.state == .connectedLocal || self.state == .connectedRemote || self.state == .connecting
-            var hosts = self.settings.knownHosts
-            hosts.record(address: computer.address, name: computer.name, kind: computer.kind, at: Date().timeIntervalSince1970)
-            self.settings.knownHosts = hosts
-            guard !isBusy else {
-                self.onError?("새로 페어링된 \(computer.name)이(가) 기기 목록에 추가되었습니다.")
-                return
-            }
-            self.log.notice("adopting newly paired host \(computer.address, privacy: .public)")
-            self.hud.show(.pairedNewHost(computer.name))
-            self.connect(toAddress: computer.address, name: computer.name)
-        }
+        pairing.onAdded = { [weak self] computers in self?.adopt(newlyPaired: computers) }
         pairing.onNamesChanged = { [weak self] in self?.refreshKnownHostNames() }
         pairing.onRemoved = { [weak self] address in
             guard let self else { return }
             var hosts = self.settings.knownHosts
             hosts.forget(address: address)
             self.settings.knownHosts = hosts
+            // The Caps Lock choice for this host is kept: pairing the same iMac again is common
+            // (a changed descriptor needs it) and the choice is about the iMac, not the pairing.
             guard InboundPolicy.isSameHost(self.settings.targetAddress, address) else { return }
             self.log.notice("target pairing removed; stopping")
             self.disconnect()
@@ -79,6 +70,39 @@ final class SessionController {
             self.transport.targetAddress = nil
             self.onError?("iMac 페어링이 해제되어 연결을 멈췄습니다. 다른 iMac을 페어링하거나 목록에서 선택하세요.")
         }
+    }
+
+    private func adopt(newlyPaired computers: [PairedDeviceWatcher.PairedComputer]) {
+        var hosts = settings.knownHosts
+        // A host that was served before keeps its history; pairing again makes it "repaired".
+        for computer in computers where !hosts.contains(address: computer.address) {
+            hosts.record(address: computer.address, name: computer.name, kind: computer.kind, at: KnownHost.neverServed)
+        }
+        settings.knownHosts = hosts
+        guard computers.count == 1, let computer = computers.first else {
+            log.notice("\(computers.count, privacy: .public) hosts paired at once; leaving the choice to the user")
+            onError?("새로 페어링된 컴퓨터가 \(computers.count)대입니다. 메뉴에서 연결할 기기를 선택하세요.")
+            return
+        }
+        guard !isLinkUp else {
+            onError?("새로 페어링된 \(computer.name)이(가) 기기 목록에 추가되었습니다.")
+            return
+        }
+        let familiarity = pairing.familiarity(of: computer.address)
+        log.notice("adopting newly paired host \(computer.address, privacy: .public) (\(String(describing: familiarity), privacy: .public))")
+        showHUD(.pairedNewHost(computer.name))
+        connect(toAddress: computer.address, name: computer.name)
+    }
+
+    /// How far up the stack the link to the target reaches, for telling "Bluetooth says
+    /// connected" apart from "the keyboard works".
+    var linkLayerStatus: LinkLayerStatus {
+        guard let address = settings.targetAddress, let device = IOBluetoothDevice(addressString: address) else { return .notPaired }
+        return LinkLayerStatus(isPaired: device.isPaired(), isBasebandUp: device.isConnected(), areHIDChannelsOpen: transport.isConnected)
+    }
+
+    var targetFamiliarity: HostFamiliarity? {
+        settings.targetAddress.map { pairing.familiarity(of: $0) }
     }
 
     /// A freshly paired Mac is listed under a placeholder until its first connection; pick up the real name.
@@ -101,6 +125,7 @@ final class SessionController {
     func retryNow() {
         guard settings.targetAddress != nil else { return }
         reconnectPolicy.reset()
+        hostCuePolicy.reset()
         settings.wantsConnection = true
         settings.isPaused = false
         transport.isPaused = false
@@ -118,16 +143,32 @@ final class SessionController {
         transport.targetAddress = settings.targetAddress
         transport.isPaused = settings.isPaused
         transport.start()
-        pairing.start()
-        if let target = settings.targetAddress, pairing.isPaired(address: target) == false {
-            // The user forgot this iMac while the app was not running (nil = list unavailable, keep it).
+        if let target = settings.targetAddress, !pairing.isPaired(address: target) {
+            // The user forgot this iMac while the app was not running.
+            log.notice("saved target \(target, privacy: .public) is no longer paired; cleared")
             settings.wantsConnection = false
             settings.targetAddress = nil
             settings.targetName = nil
             transport.targetAddress = nil
         }
-        if settings.wantsConnection, settings.targetAddress != nil {
-            connect()
+        // The saved intent is resumed only after the first pairing list: a host paired while the
+        // app was not running is adopted first, so the previous iMac is not paged for nothing.
+        pairing.onFirstList = { [weak self] in
+            guard let self else { return }
+            self.logInventory()
+            if self.settings.wantsConnection, self.settings.targetAddress != nil, self.state == .idle {
+                self.connect()
+            }
+        }
+        pairing.start()
+    }
+
+    /// One line per paired computer at launch, so a log shows what the app knew before it acted.
+    private func logInventory() {
+        log.notice("permissions granted: \(InputPermissions.allGranted, privacy: .public); target: \(self.settings.targetAddress ?? "none", privacy: .public); wantsConnection: \(self.settings.wantsConnection, privacy: .public); capsLock: \(self.settings.capsLockMapping.rawValue, privacy: .public)")
+        for computer in pairing.pairedComputers() {
+            let familiarity = pairing.familiarity(of: computer.address)
+            log.notice("paired: \(computer.name, privacy: .public) (\(computer.address, privacy: .public)) \(String(describing: familiarity), privacy: .public)")
         }
     }
 
@@ -140,6 +181,7 @@ final class SessionController {
     func targetDidChange() {
         hostCueWork?.cancel()
         transport.targetAddress = settings.targetAddress
+        applySettings()   // Caps Lock is chosen per host
         if state != .idle {
             disconnect()
         }
@@ -167,6 +209,8 @@ final class SessionController {
 
     // MARK: - Commands
 
+    /// Connects because the user asked for it (menu, pairing a new iMac, launch with a saved
+    /// intent): the unattended budgets start over.
     func connect() {
         guard settings.targetAddress != nil else {
             onError?(HIDTransportError.noTarget.localizedDescription)
@@ -177,6 +221,15 @@ final class SessionController {
         settings.isPaused = false
         transport.isPaused = false
         reconnectPolicy.reset()
+        hostCuePolicy.reset()
+        attemptConnection()
+    }
+
+    /// Connects because the host paged this Mac. The retry budget is left as it is, so a cue that
+    /// arrives after the retries were spent gets this one attempt and no more.
+    private func connectAfterHostCue() {
+        guard settings.targetAddress != nil, startCapture() else { return }
+        settings.wantsConnection = true
         attemptConnection()
     }
 
@@ -190,6 +243,7 @@ final class SessionController {
         dispatch(.stopRequested)
         transport.disconnect()
         capture.stop()
+        hud.dismiss()
     }
 
     func toggle() {
@@ -228,9 +282,13 @@ final class SessionController {
 
     private func attemptConnection() {
         cancelRetry()
-        isWaitingForHost = false
+        isWaitingForUser = false
         onError?(nil)
+        let familiarity = targetFamiliarity.map { String(describing: $0) } ?? "-"
+        log.notice("attempt: target \(self.settings.targetAddress ?? "-", privacy: .public) familiarity=\(familiarity, privacy: .public) layer=\(String(describing: self.linkLayerStatus), privacy: .public) retriesUsed=\(self.reconnectPolicy.attempt, privacy: .public) cuesUsed=\(self.hostCuePolicy.used, privacy: .public)")
         dispatch(.connectRequested)
+        // Connecting takes four to five seconds; without this the user sees nothing until it ends.
+        showHUD(.connecting(isFirstConnection: targetFamiliarity?.isFirstConnection ?? true))
         transport.connect()
     }
 
@@ -238,17 +296,23 @@ final class SessionController {
         guard settings.wantsConnection else { return }
         reconnectWork?.cancel()
         guard let delay = reconnectPolicy.nextDelayIfAllowed() else {
-            // Stop paging a host that keeps refusing; it will connect to us when it wants a keyboard.
-            isWaitingForHost = true
+            // Stop paging a host that keeps refusing: every attempt keeps this Mac's radio busy.
+            isWaitingForUser = true
             nextRetry = nil
-            log.notice("automatic retries exhausted; waiting for the host or the user")
-            onError?("자동 재시도를 멈췄습니다. iMac 쪽에서 연결하거나 메뉴에서 다시 연결하세요.")
+            let layer = linkLayerStatus
+            log.notice("automatic retry spent; waiting for the user (layer=\(String(describing: layer), privacy: .public))")
+            let hint = layer == .basebandOnly
+                ? "블루투스는 연결되어 있지만 키보드 채널이 열리지 않았습니다. iMac의 Bluetooth 설정에서 이 Mac을 ‘연결 해제’한 뒤 다시 시도하세요.\n"
+                : ""
+            onError?(hint + "자동 재시도를 멈췄습니다. 메뉴의 ‘지금 다시 연결’을 누르면 다시 시도합니다.")
+            showHUD(.disconnected(.waitingForUser))
             onStateChange?(machine.state)
             return
         }
-        isWaitingForHost = false
+        isWaitingForUser = false
         nextRetry = Date().addingTimeInterval(delay)
         log.info("retry #\(self.reconnectPolicy.attempt, privacy: .public) in \(delay, privacy: .public)s")
+        showHUD(.disconnected(.retrying(seconds: Int(delay.rounded()))))
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.settings.wantsConnection, !self.transport.isConnected else { return }
             self.attemptConnection()
@@ -301,8 +365,13 @@ final class SessionController {
         case .unlockCursor:
             cursorLock.unlock()
         case .showHUD(let message):
-            hud.show(message)
+            showHUD(message)
         }
+    }
+
+    private func showHUD(_ message: HUDMessage) {
+        let context = HUDContext(hostName: settings.targetName, hotkey: settings.hotkey.displayString)
+        hud.show(HUDPresentation(message, context: context))
     }
 
     private func wireCapture() {
@@ -339,22 +408,25 @@ final class SessionController {
 }
 
 extension SessionController: HIDTransportDelegate {
-    /// The host's own HID attempt dies after 3 s; connect outbound right after that window.
-    private static let hostAttemptWindow: TimeInterval = 4
+    /// The cue arrives when the host's link has already dropped, so nothing is left to collide
+    /// with; the short wait only lets the stack finish tearing that link down.
+    private static let hostAttemptWindow: TimeInterval = 1
 
     func transportHostCameIntoRange(_ transport: HIDTransport, hostAddress: String, hostName: String?) {
-        guard !settings.isPaused else { return }
-        let isTarget = InboundPolicy.isSameHost(settings.targetAddress, hostAddress)
-        let isKnown = settings.knownHosts.contains(address: hostAddress)
-        guard isTarget || isKnown || settings.targetAddress == nil else { return }
-        guard !isLinkUp, state != .connecting else { return }
+        // Without a standing request from the user a paging host is not a reason to connect.
+        guard settings.wantsConnection, !settings.isPaused,
+              InboundPolicy.isSameHost(settings.targetAddress, hostAddress) else { return }
+        guard !isLinkUp, state != .connecting, reconnectWork == nil else { return }
+        guard hostCuePolicy.shouldHonorCue() else {
+            log.notice("host \(hostAddress, privacy: .public) paged again; ignored until the user asks")
+            return
+        }
         log.notice("host \(hostAddress, privacy: .public) in range; connecting in \(Self.hostAttemptWindow, privacy: .public)s")
         hostCueWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.isLinkUp, self.state != .connecting, !self.settings.isPaused else { return }
-            let name = PairedDeviceWatcher.resolvedName(hostName) ?? self.settings.knownHosts.entries.first { InboundPolicy.isSameHost($0.address, hostAddress) }?.name ?? hostAddress
-            self.reconnectPolicy.reset()
-            self.connect(toAddress: hostAddress, name: name)
+            guard let self, !self.isLinkUp, self.state != .connecting, !self.settings.isPaused,
+                  InboundPolicy.isSameHost(self.settings.targetAddress, hostAddress) else { return }
+            self.connectAfterHostCue()
         }
         hostCueWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.hostAttemptWindow, execute: work)
@@ -366,13 +438,15 @@ extension SessionController: HIDTransportDelegate {
             log.notice("target host changed to \(hostAddress, privacy: .public)")
             settings.targetAddress = hostAddress
             settings.targetName = hostName ?? hostAddress
+            applySettings()
         }
         settings.wantsConnection = true
         rememberHost(address: hostAddress, name: hostName)
         hostCueWork?.cancel()
         cancelRetry()
-        isWaitingForHost = false
+        isWaitingForUser = false
         reconnectPolicy.reset()
+        hostCuePolicy.reset()
         onError?(nil)
         // Keep the link even without permissions: dropping it looks like "connects then disconnects" on the iMac.
         // toggle() refuses remote mode until the event tap runs, so local input can never be stranded.
@@ -390,7 +464,15 @@ extension SessionController: HIDTransportDelegate {
         dispatch(.transportDisconnected)
         guard let error else { return }
         onError?(error.localizedDescription)
-        if error.isRetryable {
+        if error == .hostClosed {
+            // The host disconnected on purpose: no attempt until the user asks or the host pages.
+            cancelRetry()
+            isWaitingForUser = true
+            log.notice("host closed the link on purpose; waiting for the user")
+            onError?(error.localizedDescription + " 다시 쓰려면 메뉴의 ‘지금 다시 연결’을 누르세요.")
+            showHUD(.disconnected(.hostClosed))
+            onStateChange?(machine.state)
+        } else if error.isRetryable {
             scheduleRetry()
         } else {
             settings.wantsConnection = false

@@ -4,7 +4,8 @@ import InputCapture
 
 /// Menu bar item: three-state icon, device rows, commands, settings, help.
 final class StatusMenuController: NSObject, NSMenuDelegate {
-    var onShowOnboarding: (() -> Void)?
+    /// Opens the guide at the given page.
+    var onShowOnboarding: ((OnboardingStep) -> Void)?
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let menu = NSMenu()
@@ -21,6 +22,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let speedMenu = NSMenu()
     private let powerMenu = NSMenu()
     private let capsLockMenu = NSMenu()
+    /// First line of the Caps Lock menu: which host the choice applies to.
+    private let capsLockScopeItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let autoResumeItem = NSMenuItem(title: "재연결 시 iMac 입력 자동 복귀", action: #selector(toggleAutoResume), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "로그인 시 자동 실행", action: #selector(toggleLoginItem), keyEquivalent: "")
     private static let speedChoices: [Double] = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0]
@@ -117,12 +120,25 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         let capsItem = NSMenuItem(title: "Caps Lock → iMac", action: nil, keyEquivalent: "")
         capsItem.submenu = capsLockMenu
-        for (mapping, title) in [(CapsLockMapping.globe, "🌐 키 (입력 소스 전환)"), (.controlSpace, "⌃스페이스 (이전 입력 소스)"), (.capsLock, "Caps Lock 그대로")] {
+        capsLockMenu.autoenablesItems = false
+        capsLockScopeItem.isEnabled = false
+        capsLockMenu.addItem(capsLockScopeItem)
+        capsLockMenu.addItem(.separator())
+        let capsLockChoices: [(CapsLockMapping, String)] = [
+            (.capsLock, "Caps Lock 그대로 (권장)"),
+            (.globe, "🌐 키로 바꿔 보내기"),
+            (.controlSpace, "⌃스페이스로 바꿔 보내기"),
+        ]
+        for (mapping, title) in capsLockChoices {
             let item = NSMenuItem(title: title, action: #selector(selectCapsLockMapping(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = mapping.rawValue
             capsLockMenu.addItem(item)
         }
+        capsLockMenu.addItem(.separator())
+        let guide = NSMenuItem(title: "한/영 전환 설정 방법…", action: #selector(showInputSourceGuide), keyEquivalent: "")
+        guide.target = self
+        capsLockMenu.addItem(guide)
         menu.addItem(capsItem)
         menu.addItem(.separator())
         autoResumeItem.target = self
@@ -163,19 +179,22 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let (symbol, description): (String, String)
         switch state {
         case .idle: (symbol, description) = ("keyboard", "대기 중 · 대상: \(target)")
-        case .connecting: (symbol, description) = ("keyboard.badge.ellipsis", "연결 중… \(target)")
+        case .connecting:
+            let kind = session.targetFamiliarity?.isFirstConnection == true ? "첫 연결" : "재연결"
+            (symbol, description) = ("keyboard.badge.ellipsis", "연결 중… \(target) (\(kind))")
         case .connectedLocal: (symbol, description) = ("keyboard", "연결됨 · 입력: MacBook")
         case .connectedRemote: (symbol, description) = ("keyboard.fill", "연결됨 · 입력: iMac")
         case .disconnected:
-            let retry = session.nextRetry.map { " · \(max(0, Int($0.timeIntervalSinceNow.rounded())))초 후 재시도" } ?? ""
+            let retry = session.nextRetry.map { " · \(max(0, Int($0.timeIntervalSinceNow.rounded())))초 후 한 번 더 시도" } ?? ""
             (symbol, description) = ("keyboard.badge.ellipsis", "연결 끊김\(retry)")
         }
+        let layerLine = Self.layerDescription(session.linkLayerStatus, state: state, hasTarget: settings.targetAddress != nil)
         if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: description) {
             statusItem.button?.image = image
             statusItem.button?.contentTintColor = state == .connectedRemote ? .systemOrange : nil
         }
         statusItem.button?.toolTip = description
-        statusLine.title = lastError.map { "\(description)\n\($0)" } ?? description
+        statusLine.title = ([description] + [layerLine, lastError].compactMap { $0 }).joined(separator: "\n")
 
         let isActive = state != .idle
         let targetLabel = settings.targetName ?? settings.targetAddress
@@ -183,17 +202,33 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         connectItem.isEnabled = isActive || settings.targetAddress != nil
         toggleItem.title = state == .connectedRemote ? "MacBook 입력으로 전환 (\(hotkey))" : "iMac 입력으로 전환 (\(hotkey))"
         toggleItem.isEnabled = state == .connectedLocal || state == .connectedRemote
-        retryItem.isHidden = !(state == .disconnected && session.isWaitingForHost)
+        retryItem.isHidden = !(state == .disconnected && session.isWaitingForUser)
+    }
+
+    /// What System Settings shows versus what the keyboard can do, while they differ.
+    private static func layerDescription(_ status: LinkLayerStatus, state: SessionState, hasTarget: Bool) -> String? {
+        guard hasTarget, state != .connectedLocal, state != .connectedRemote else { return nil }
+        switch status {
+        case .notPaired: return "블루투스: 페어링 안 됨"
+        case .pairedOnly: return "블루투스: 페어링됨 · 링크 없음"
+        case .basebandOnly: return "블루투스: 링크 연결됨 · 키보드 채널 없음"
+        case .hidReady: return nil
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === self.menu else { return }
+        let paired = session.pairing.pairedComputers()
+        let familiarity = Dictionary(uniqueKeysWithValues: settings.knownHosts.entries.map {
+            ($0.address, session.pairing.familiarity(of: $0.address))
+        })
         devices.install(in: menu, above: deviceSectionAnchor, hosts: settings.knownHosts, targetAddress: settings.targetAddress,
-                        isLinkUp: session.isLinkUp, paired: session.pairing.pairedComputers())
+                        isLinkUp: session.isLinkUp, paired: paired, familiarity: familiarity)
         for item in speedMenu.items {
             item.state = (item.representedObject as? Double) == settings.pointerMultiplier ? .on : .off
         }
-        for item in capsLockMenu.items {
+        capsLockScopeItem.title = (settings.targetName ?? settings.targetAddress).map { "‘\($0)’에 적용" } ?? "모든 기기에 적용"
+        for item in capsLockMenu.items where item.representedObject != nil {
             item.state = (item.representedObject as? String) == settings.capsLockMapping.rawValue ? .on : .off
         }
         for item in powerMenu.items {
@@ -237,9 +272,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func selectCapsLockMapping(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mapping = CapsLockMapping(rawValue: raw) else { return }
-        settings.capsLockMapping = mapping
+        var preferences = settings.capsLockPreferences
+        preferences.set(mapping, for: settings.targetAddress)
+        settings.capsLockPreferences = preferences
         session.applySettings()
     }
+
+    @objc private func showInputSourceGuide() { onShowOnboarding?(.inputSource) }
 
     @objc private func selectPowerMode(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let mode = PowerSaveMode(rawValue: raw) else { return }
@@ -260,7 +299,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func showGuide() { onShowOnboarding?() }
+    @objc private func showGuide() { onShowOnboarding?(.welcome) }
     @objc private func showAbout() { SupportActions.showAbout() }
     @objc private func openTroubleshooting() { NSWorkspace.shared.open(AppInfo.troubleshootingURL) }
     @objc private func openWebsite() { NSWorkspace.shared.open(AppInfo.websiteURL) }

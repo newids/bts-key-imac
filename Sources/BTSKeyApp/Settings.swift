@@ -12,9 +12,11 @@ struct Settings {
         static let wantsConnection = "wantsConnection"
         static let isPaused = "isPaused"
         static let powerSaveMode = "powerSaveMode"
-        static let capsLockMapping = "capsLockMapping"
+        static let capsLockMapping = "capsLockMapping"          // the single choice of 0.1.x, read once
+        static let capsLockPreferences = "capsLockPreferences"
         static let autoResumeRemote = "autoResumeRemote"
         static let knownHosts = "knownHosts"
+        static let pairingLedger = "pairedDeviceLedger"   // every paired device, not only computers
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 
@@ -59,9 +61,22 @@ struct Settings {
         nonmutating set { defaults.set(newValue.rawValue, forKey: Key.powerSaveMode) }
     }
 
+    /// What Caps Lock becomes, per host. Starts from the single choice earlier versions stored.
+    var capsLockPreferences: CapsLockPreferences {
+        get {
+            if let data = defaults.data(forKey: Key.capsLockPreferences),
+               let stored = try? JSONDecoder().decode(CapsLockPreferences.self, from: data) {
+                return stored
+            }
+            let earlier = defaults.string(forKey: Key.capsLockMapping).flatMap(CapsLockMapping.init(rawValue:))
+            return CapsLockPreferences(general: earlier ?? .defaultMapping)
+        }
+        nonmutating set { defaults.set(try? JSONEncoder().encode(newValue), forKey: Key.capsLockPreferences) }
+    }
+
+    /// The choice in effect for the current target.
     var capsLockMapping: CapsLockMapping {
-        get { defaults.string(forKey: Key.capsLockMapping).flatMap(CapsLockMapping.init(rawValue:)) ?? .defaultMapping }
-        nonmutating set { defaults.set(newValue.rawValue, forKey: Key.capsLockMapping) }
+        capsLockPreferences.mapping(for: targetAddress)
     }
 
     /// Re-enter remote mode when a link that dropped during remote mode comes back (iMac wake/login).
@@ -74,6 +89,13 @@ struct Settings {
     var knownHosts: KnownHosts {
         get { defaults.data(forKey: Key.knownHosts).map { KnownHosts(encoded: $0, fallbackToEmpty: true) } ?? KnownHosts() }
         nonmutating set { defaults.set(try? newValue.encoded(), forKey: Key.knownHosts) }
+    }
+
+    /// When each pairing was first seen, kept across launches so a pairing made while the app
+    /// was not running still counts as new.
+    var pairingLedger: PairingLedger {
+        get { defaults.data(forKey: Key.pairingLedger).flatMap { try? JSONDecoder().decode(PairingLedger.self, from: $0) } ?? PairingLedger() }
+        nonmutating set { defaults.set(try? JSONEncoder().encode(newValue), forKey: Key.pairingLedger) }
     }
 
     var hasCompletedOnboarding: Bool {

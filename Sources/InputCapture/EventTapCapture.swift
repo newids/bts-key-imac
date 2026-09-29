@@ -136,7 +136,23 @@ public final class EventTapCapture {
         keyboard.allUp()
         let report = keyboard.report
         stateLock.unlock()
-        onKeyboardReport?(report)
+        emit([report])
+    }
+
+    /// Sends keyboard reports in order. `reason` names the input source key that caused them,
+    /// for the log; ordinary typing is never logged.
+    private func emit(_ reports: [KeyboardReport], reason: String? = nil) {
+        if let reason {
+            let summary = reports.map(Self.describe).joined(separator: " | ")
+            log.info("\(reason, privacy: .public) -> \(reports.isEmpty ? "nothing sent" : summary, privacy: .public)")
+        }
+        reports.forEach { onKeyboardReport?($0) }
+    }
+
+    /// What a report says about modifiers and the input source keys, without the typed keys.
+    private static func describe(_ report: KeyboardReport) -> String {
+        let hasCapsLock = report.keys.contains(0x39)
+        return "keyboard fn=\(report.fn ? 1 : 0) modifiers=0x\(String(report.modifiers.rawValue, radix: 16)) keys=\(report.keys.count) capsLock=\(hasCapsLock ? 1 : 0)"
     }
 
     public enum CaptureError: LocalizedError {
@@ -206,7 +222,7 @@ public final class EventTapCapture {
         if type == .keyDown { keyboard.press(usage) } else { keyboard.release(usage) }
         let report = keyboard.report
         stateLock.unlock()
-        onKeyboardReport?(report)
+        emit([report])
         return nil
     }
 
@@ -215,6 +231,10 @@ public final class EventTapCapture {
         stateLock.lock()
         keyboard.modifiers = ModifierTranslator.modifiers(from: event.flags)
         var reports = [keyboard.report]
+        let isInputSourceKey = keyCode == Self.capsLockKeyCode || keyCode == Self.functionKeyCode
+        if isInputSourceKey {
+            log.info("event tap: flags changed by key \(keyCode, privacy: .public) (fn=\(event.flags.contains(.maskSecondaryFn), privacy: .public) capsLock=\(event.flags.contains(.maskAlphaShift), privacy: .public))")
+        }
         if keyCode == Self.capsLockKeyCode, capsLock.isRunning {
             // The HID monitor forwards the real down/up edges; the flag change carries no timing.
             stateLock.unlock()
@@ -229,16 +249,18 @@ public final class EventTapCapture {
             reports = [keyboard.report]
         }
         stateLock.unlock()
-        reports.forEach { onKeyboardReport?($0) }
+        emit(reports, reason: isInputSourceKey ? "key \(keyCode) via event tap" : nil)
         return nil
     }
 
     private func handleCapsLock(isDown: Bool) {
-        guard isCapturingNow else { return }
+        let isCapturing = isCapturingNow
+        log.info("HID monitor: Caps Lock \(isDown ? "down" : "up", privacy: .public) (forwarding: \(isCapturing, privacy: .public), as: \(self.capsLockMapping.rawValue, privacy: .public))")
+        guard isCapturing else { return }
         stateLock.lock()
         let reports = _capsLockMapping.reports(isDown: isDown, state: &keyboard)
         stateLock.unlock()
-        reports.forEach { onKeyboardReport?($0) }
+        emit(reports, reason: "Caps Lock \(isDown ? "down" : "up")")
     }
 
     private func handleMotion(_ event: CGEvent) {

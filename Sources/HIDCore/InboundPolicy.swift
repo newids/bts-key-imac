@@ -2,7 +2,7 @@
 ///
 /// A bonded iMac reconnects to its keyboard on its own, e.g. when the user clicks
 /// "Connect" in the iMac's Bluetooth settings or the iMac wakes. The user moves
-/// between lab iMacs, so any paired host is accepted and becomes the new target;
+/// between iMacs, so any paired host is accepted and becomes the new target;
 /// encrypted HID channels can only come from a bonded host anyway.
 public enum InboundPolicy {
     public static func shouldAccept(isPaired: Bool, isPaused: Bool) -> Bool {

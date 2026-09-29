@@ -7,6 +7,11 @@ public struct PairingChange: Equatable, Sendable {
     public let added: Set<String>
     public let removed: Set<String>
 
+    public init(added: Set<String>, removed: Set<String>) {
+        self.added = added
+        self.removed = removed
+    }
+
     /// `before` is nil for the first snapshot, which seeds the watcher without reporting additions.
     public init(before: Set<String>?, after: Set<String>) {
         let normalizedAfter = Set(after.map(InboundPolicy.normalize))

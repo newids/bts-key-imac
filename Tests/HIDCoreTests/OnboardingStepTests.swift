@@ -8,7 +8,13 @@ final class OnboardingStepTests: XCTestCase {
         XCTAssertEqual(OnboardingStep.welcome.next, .permissions)
         XCTAssertNil(OnboardingStep.finish.next)
         XCTAssertNil(OnboardingStep.welcome.previous)
-        XCTAssertEqual(OnboardingStep.finish.previous, .connect)
+        XCTAssertEqual(OnboardingStep.finish.previous, .inputSource)
+    }
+
+    func testInputSourceSetupComesRightAfterConnecting() {
+        // The host lists this Mac under Modifier Keys only while it is connected.
+        XCTAssertEqual(OnboardingStep.connect.next, .inputSource)
+        XCTAssertEqual(OnboardingStep.inputSource.next, .finish)
     }
 
     func testEveryStepHasCopy() {

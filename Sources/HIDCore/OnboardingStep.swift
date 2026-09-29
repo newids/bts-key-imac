@@ -4,6 +4,8 @@ public enum OnboardingStep: Int, CaseIterable, Sendable {
     case permissions
     case pairing
     case connect
+    /// After connecting: the host lists this Mac under Modifier Keys only while it is connected.
+    case inputSource
     case finish
 
     public var next: OnboardingStep? { OnboardingStep(rawValue: rawValue + 1) }
@@ -20,6 +22,7 @@ public enum OnboardingStep: Int, CaseIterable, Sendable {
         case .permissions: return "권한 허용"
         case .pairing: return "iMac과 페어링"
         case .connect: return "연결하고 전환하기"
+        case .inputSource: return "Caps Lock으로 한/영"
         case .finish: return "준비 완료"
         }
     }
@@ -34,6 +37,8 @@ public enum OnboardingStep: Int, CaseIterable, Sendable {
             return "iMac의 시스템 설정 → Bluetooth에서 이 MacBook을 한 번 페어링합니다. 관리자 권한은 필요 없습니다."
         case .connect:
             return "iMac 쪽 Bluetooth 설정에서 BTS Key를 연결하거나, 메뉴바에서 iMac을 선택해 연결합니다. 그 뒤 단축키로 입력을 오갑니다."
+        case .inputSource:
+            return "iMac은 보조 키 설정을 키보드마다 따로 기억합니다. iMac에서 이 MacBook을 골라 한 번 지정하면 Caps Lock으로 iMac의 한/영이 바뀝니다."
         case .finish:
             return "메뉴바의 키보드 아이콘에서 언제든 연결 상태를 보고 바꿀 수 있습니다."
         }
@@ -45,6 +50,7 @@ public enum OnboardingStep: Int, CaseIterable, Sendable {
         case .permissions: return "lock.shield"
         case .pairing: return "link"
         case .connect: return "arrow.left.arrow.right"
+        case .inputSource: return "globe"
         case .finish: return "checkmark.seal"
         }
     }

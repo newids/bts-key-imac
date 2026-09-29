@@ -5,8 +5,8 @@ public protocol HIDTransportDelegate: AnyObject {
     /// `hostAddress`/`hostName` identify the host on the other end.
     func transportDidConnect(_ transport: HIDTransport, hostAddress: String, hostName: String?)
     /// A paired host brought up a baseband link on its own (it wants its keyboard back, e.g. after
-    /// waking). Its own HID attempt cannot be served (see ClassicHIDTransport), so the app should
-    /// connect outbound shortly after.
+    /// waking) and that link has now dropped. Its own HID attempt could not be served (see
+    /// ClassicHIDTransport), so the app should connect outbound.
     func transportHostCameIntoRange(_ transport: HIDTransport, hostAddress: String, hostName: String?)
     /// `error` is nil when the link was closed on purpose (user disconnect or quit).
     func transportDidDisconnect(_ transport: HIDTransport, error: HIDTransportError?)
@@ -43,12 +43,15 @@ public enum HIDTransportError: LocalizedError, Equatable {
     case channelOpenFailed(psm: UInt16, code: Int32)
     case timedOut
     case linkClosed
+    /// The host closed the HID channels while the baseband link was still up: it disconnected on
+    /// purpose. HID Profile 1.1.1 §5.3.4.6 forbids reconnecting right away in that case.
+    case hostClosed
     case hostUnplugged
 
     /// Whether retrying later can succeed without the user changing anything.
     public var isRetryable: Bool {
         switch self {
-        case .noTarget, .invalidAddress, .notPaired, .publishFailed, .hostUnplugged: return false
+        case .noTarget, .invalidAddress, .notPaired, .publishFailed, .hostUnplugged, .hostClosed: return false
         case .notPublished, .connectionFailed, .channelOpenFailed, .timedOut, .linkClosed: return true
         }
     }
@@ -64,6 +67,7 @@ public enum HIDTransportError: LocalizedError, Equatable {
         case .channelOpenFailed(let psm, let code): return "HID 채널 0x\(String(psm, radix: 16))을 열지 못했습니다(IOReturn \(code))."
         case .timedOut: return "연결 시간이 초과되었습니다."
         case .linkClosed: return "블루투스 연결이 끊겼습니다."
+        case .hostClosed: return "iMac이 키보드 연결을 닫았습니다."
         case .hostUnplugged: return "iMac이 이 키보드의 연결을 해제했습니다."
         }
     }

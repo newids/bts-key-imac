@@ -27,7 +27,7 @@ final class SessionStateMachineTests: XCTestCase {
 
     func testDisconnectInRemoteModeReleasesLocalControl() {
         var machine = SessionStateMachine(state: .connectedRemote)
-        XCTAssertEqual(machine.handle(.transportDisconnected), [.unlockCursor, .showHUD(.disconnected)])
+        XCTAssertEqual(machine.handle(.transportDisconnected), [.unlockCursor, .showHUD(.disconnected(.none))])
         XCTAssertEqual(machine.state, .disconnected)
     }
 

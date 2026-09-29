@@ -2,6 +2,9 @@ import Foundation
 
 /// A host this Mac has served as a keyboard before.
 public struct KnownHost: Equatable, Codable, Sendable {
+    /// `lastConnected` of a host that is paired and listed but has not carried HID traffic yet.
+    public static let neverServed: Double = 0
+
     public let address: String
     public var name: String
     public var kind: BluetoothDeviceKind
@@ -13,6 +16,8 @@ public struct KnownHost: Equatable, Codable, Sendable {
         self.kind = kind
         self.lastConnected = lastConnected
     }
+
+    public var hasServed: Bool { lastConnected > Self.neverServed }
 }
 
 /// Most-recent-first history of hosts, like the device list in the macOS Bluetooth menu.
@@ -44,7 +49,11 @@ public struct KnownHosts: Equatable, Sendable {
         let key = InboundPolicy.normalize(address)
         var rest = entries.filter { $0.address != key }
         rest.append(KnownHost(address: key, name: name, kind: kind, lastConnected: time))
-        entries = Array(rest.sorted { $0.lastConnected > $1.lastConnected }.prefix(limit))
+        // Hosts that were just paired and not served yet come first, so the cap drops the
+        // oldest history instead of the iMac the user is moving to.
+        let unserved = rest.filter { !$0.hasServed }
+        let served = rest.filter(\.hasServed).sorted { $0.lastConnected > $1.lastConnected }
+        entries = Array((unserved + served).prefix(limit))
     }
 
     public mutating func forget(address: String) {

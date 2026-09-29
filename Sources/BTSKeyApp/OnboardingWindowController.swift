@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import HIDCore
 import InputCapture
 
 /// Hosts the SwiftUI guide in a plain titled window; one instance for the app's lifetime.
@@ -36,11 +37,12 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    func show() {
+    /// Opens the guide at `step`; help items that explain one thing jump straight to its page.
+    func show(at step: OnboardingStep = .welcome) {
         model.hotkeyText = settings.hotkey.displayString
         model.targetName = settings.targetName
         model.refreshPermissions()
-        model.step = .welcome
+        model.step = step
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }

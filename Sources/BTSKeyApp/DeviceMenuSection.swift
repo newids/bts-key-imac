@@ -23,7 +23,7 @@ final class DeviceMenuSection {
     /// Rebuilds the rows in `menu` just above `anchor`. Old rows are removed first, so the
     /// anchor's index is read only after that removal.
     func install(in menu: NSMenu, above anchor: NSMenuItem, hosts: KnownHosts, targetAddress: String?, isLinkUp: Bool,
-                 paired: [PairedDeviceWatcher.PairedComputer]) {
+                 paired: [PairedDeviceWatcher.PairedComputer], familiarity: [String: HostFamiliarity]) {
         rows.forEach { if menu.items.contains($0) { menu.removeItem($0) } }
         rows = []
         var cursor = menu.index(of: anchor)
@@ -31,7 +31,10 @@ final class DeviceMenuSection {
         if hosts.entries.isEmpty {
             rows.append(emptyItem)
         }
-        for host in hosts.entries {
+        // The iMac the user just paired goes first; history follows, most recent first.
+        let fresh = hosts.entries.filter { [.new, .repaired].contains(familiarity[$0.address] ?? .untried) }
+        let ordered = fresh + hosts.entries.filter { !fresh.contains($0) }
+        for host in ordered {
             let item = NSMenuItem(title: host.name, action: #selector(rowSelected(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = host
@@ -40,10 +43,10 @@ final class DeviceMenuSection {
             let isPaired = paired.contains { $0.address == host.address }
             item.state = isTarget && isLinkUp ? .on : .off
             item.isEnabled = isPaired
-            let status = isTarget && isLinkUp ? "연결됨" : (isPaired ? Self.lastSeen(host.lastConnected) : "페어링 해제됨")
+            let status = isTarget && isLinkUp ? "연결됨" : Self.status(of: host, familiarity: familiarity[host.address] ?? .untried)
             if #available(macOS 14.4, *) {
                 item.subtitle = status
-            } else if isTarget && isLinkUp || !isPaired {
+            } else if isTarget && isLinkUp || !isPaired || !host.hasServed {
                 item.title = "\(host.name) — \(status)"
             }
             item.submenu = contextMenu(for: host, isConnected: isTarget && isLinkUp)
@@ -99,6 +102,16 @@ final class DeviceMenuSection {
         let image = NSImage(systemSymbolName: kind.symbolName, accessibilityDescription: nil)
         image?.isTemplate = true
         return image
+    }
+
+    private static func status(of host: KnownHost, familiarity: HostFamiliarity) -> String {
+        switch familiarity {
+        case .new: return "새 기기 · 아직 연결한 적 없음"
+        case .repaired: return "다시 페어링됨 · " + lastSeen(host.lastConnected)
+        case .untried: return "아직 연결한 적 없음"
+        case .returning: return lastSeen(host.lastConnected)
+        case .unpaired: return "페어링 해제됨"
+        }
     }
 
     private static func lastSeen(_ time: Double) -> String {

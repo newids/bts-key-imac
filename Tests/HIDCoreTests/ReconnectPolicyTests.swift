@@ -51,11 +51,10 @@ final class ReconnectPolicyLimitTests: XCTestCase {
 }
 
 final class ReconnectPolicyDefaultsTests: XCTestCase {
-    func testUnattendedBudgetIsThreeAttemptsWithinHalfAMinute() {
+    func testUnattendedBudgetIsASingleRetry() {
         var policy = ReconnectPolicy.unattended
-        var total = 0.0
-        while let delay = policy.nextDelayIfAllowed() { total += delay }
-        XCTAssertEqual(policy.attempt, 3)
-        XCTAssertLessThanOrEqual(total, 30)
+        XCTAssertEqual(policy.nextDelayIfAllowed(), 4)
+        XCTAssertNil(policy.nextDelayIfAllowed(), "after one retry the user decides")
+        XCTAssertEqual(policy.attempt, 1)
     }
 }

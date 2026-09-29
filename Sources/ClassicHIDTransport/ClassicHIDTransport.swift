@@ -13,8 +13,8 @@ import os
 ///   either never surfaces them to this process (idle) or surfaces channel objects that
 ///   never deliver data (while an outbound attempt is in flight), so the host's request
 ///   times out after 3 s either way. No channel or connect notifications are registered (see
-///   `start()`); the host's baseband link is detected by polling and reported to the delegate
-///   as a cue to connect outbound.
+///   `start()`). A link the host brought up shows only when it drops, through a disconnect
+///   notification on the target, which is reported to the delegate as a cue to connect outbound.
 /// - Opening channels right after `connectionComplete` is safe; `isConnected()` can lag
 ///   or stay false for some pairing records and must not gate it.
 ///
@@ -23,7 +23,7 @@ import os
 public final class ClassicHIDTransport: NSObject, HIDTransport {
     public weak var delegate: HIDTransportDelegate?
     public var targetAddress: String? {
-        didSet { if targetAddress != oldValue { wasTargetLinkUp = false } }   // edge detector is per target
+        didSet { if targetAddress != oldValue, hasStarted { watchTargetForHostLinks() } }
     }
     public var isPaused = false
 
@@ -31,6 +31,13 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     /// When a link to the host already exists the host may be opening its own HID channels
     /// (e.g. the user clicked "Connect" on the iMac); opening ours at the same time collides.
     private static let hostGracePeriod: TimeInterval = 1.5
+    /// Time between the baseband link coming up and the first channel request. Right after the
+    /// link is up the stacks on both sides are still busy with it (service discovery, feature
+    /// exchange); a channel requested in that window needs encryption started at once, and a
+    /// freshly paired iMac left that request unanswered until the link timed out (5.5 s,
+    /// status 708). After 1.5 s encryption starts in 23 ms (measured 2026-09-29).
+    private static let linkSettleDelay: TimeInterval = 1.5
+    private var settleWork: DispatchWorkItem?
     private let log = Logger(subsystem: "btskey", category: "classic-hid")
     private let serviceName: String
     private let providerName: String
@@ -41,15 +48,20 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     private static let publishRetryInterval: TimeInterval = 1
     private static let publishMaxAttempts = 30
     private var hasNotifiedConnect = false
-    private var hostLinkPoll: Timer?
-    private var wasTargetLinkUp = false
-    private static let hostLinkPollInterval: TimeInterval = 2
+    private var hasStarted = false
+    private var hostLinkWatch: IOBluetoothUserNotification?
+    private var watchedTarget: IOBluetoothDevice?
+    private var hostLinkDrops = HostLinkDropFilter()
     private var device: IOBluetoothDevice?
     private var controlChannel: IOBluetoothL2CAPChannel?
     private var interruptChannel: IOBluetoothL2CAPChannel?
     /// PSMs whose channel has finished opening (inbound channels arrive already open).
     private var openPSMs: Set<UInt16> = []
     private var isOutboundInFlight = false
+    /// True once the baseband link of the current attempt is known to be up. A disconnect
+    /// notification that arrives before that belongs to the previous link.
+    private var isLinkEstablished = false
+    private var attemptStartedAt = Date()
     private var watchdog: DispatchWorkItem?
     private var graceWork: DispatchWorkItem?
     private var isResettingLink = false
@@ -77,9 +89,11 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         // Deliberately no IOBluetooth notification registrations here. Registering for connect
         // notifications makes this process' device objects report isConnected() == false forever
         // and every channel open fail (verified 2026-09-27); channel-open notifications never
-        // deliver data. Host-initiated links are detected by polling the target instead.
-        startHostLinkPoll()
-        log.notice("publishing HID service; watching the target for host-initiated links")
+        // deliver data, with or without a PSM filter. Host-initiated links are noticed when they
+        // drop (see watchTargetForHostLinks).
+        hasStarted = true
+        watchTargetForHostLinks()
+        log.notice("publishing HID service")
     }
 
     public func connect() {
@@ -102,10 +116,13 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         closeChannels()
         self.device = device
         isOutboundInFlight = true
+        attemptStartedAt = Date()
         watchBasebandLink(of: device)
         armWatchdog()
-        log.notice("connecting to \(address, privacy: .public) (ACL up: \(device.isConnected(), privacy: .public))")
-        if device.isConnected() {
+        let isLinkUp = device.isConnected()
+        isLinkEstablished = isLinkUp
+        log.notice("connecting to \(address, privacy: .public) (ACL up: \(isLinkUp, privacy: .public))")
+        if isLinkUp {
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.isOutboundInFlight, self.controlChannel == nil else { return }
                 // The host did not open its HID channels on the existing link. Channels opened on a
@@ -117,31 +134,58 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.hostGracePeriod, execute: work)
         } else {
             let status = device.openConnection(self)
+            log.notice("step \(self.elapsed, privacy: .public): baseband link requested (status \(status, privacy: .public))")
             if status != kIOReturnSuccess { fail(.connectionFailed(code: status)) }
         }
+    }
+
+    /// Seconds since the current attempt began, for reading the steps of an attempt in the log.
+    private var elapsed: String {
+        String(format: "+%.2fs", Date().timeIntervalSince(attemptStartedAt))
     }
 
     public func disconnect() {
         dispatchPrecondition(condition: .onQueue(.main))
         let hadLink = controlChannel != nil || interruptChannel != nil || isOutboundInFlight
+        let host = device
         closeChannels()
-        if hadLink { delegate?.transportDidDisconnect(self, error: nil) }
+        if hadLink {
+            releaseBasebandLink(of: host)
+            delegate?.transportDidDisconnect(self, error: nil)
+        }
     }
 
     public func shutdown() {
         dispatchPrecondition(condition: .onQueue(.main))
+        let host = device
         closeChannels()
+        releaseBasebandLink(of: host)
         publishRetry?.cancel()
         publishRetry = nil
-        hostLinkPoll?.invalidate()
-        hostLinkPoll = nil
+        hostLinkWatch?.unregister()
+        hostLinkWatch = nil
+        watchedTarget = nil
         serviceRecord?.remove()
         serviceRecord = nil
     }
 
+    /// Reports handed to the interrupt channel and writes the stack confirmed, for diagnostics.
+    public private(set) var writesRequested = 0
+    public private(set) var writesCompleted = 0
+
     public func send(reportID: HIDReportID, payload: [UInt8]) {
         let body = { [self] in
-            guard let channel = interruptChannel else { return }
+            guard let channel = interruptChannel else {
+                log.error("report \(reportID.rawValue, privacy: .public) dropped: no interrupt channel")
+                return
+            }
+            writesRequested += 1
+            // Input source keys only (🌐 byte, Caps Lock); typing is not logged.
+            let isInputSourceKey = reportID == .keyboard
+                && (payload.last == 1 || payload.dropFirst(2).dropLast().contains(0x39))
+            if isInputSourceKey {
+                log.info("radio: report \(reportID.rawValue, privacy: .public) [\(payload.map { String(format: "%02x", $0) }.joined(separator: " "), privacy: .public)] queued (writes requested \(self.writesRequested, privacy: .public), confirmed \(self.writesCompleted, privacy: .public))")
+            }
             lastReports[reportID] = payload
             write(HIDPFrame.dataInput(reportID: reportID, payload: payload), to: channel)
         }
@@ -183,30 +227,47 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     @objc public func connectionComplete(_ device: IOBluetoothDevice!, status: IOReturn) {
         // Ignore a late callback from an attempt that was cancelled or replaced.
         guard isOutboundInFlight, let current = self.device,
-              device?.addressString == current.addressString else { return }
+              device?.addressString == current.addressString else {
+            log.notice("late baseband completion ignored (status \(status, privacy: .public))")
+            return
+        }
+        log.notice("step \(self.elapsed, privacy: .public): baseband link complete (status \(status, privacy: .public))")
         guard status == kIOReturnSuccess else { return fail(.connectionFailed(code: status)) }
+        isLinkEstablished = true
         // A successful completion is the reliable "link up" signal: isConnected() lags it and
-        // stays false altogether for some pairing records. Opening now was verified stall-free.
-        openOutbound(psm: SDPRecordBuilder.controlPSM, linkKnownUp: true)
+        // stays false altogether for some pairing records.
+        // A second completion for the same host must not open a second control channel.
+        settleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.openOutbound(psm: SDPRecordBuilder.controlPSM, linkKnownUp: true)
+        }
+        settleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.linkSettleDelay, execute: work)
     }
 
-    /// Host-initiated baseband link: the cue that the host wants its keyboard back. The target's
-    /// isConnected() flips to true when the host pages us (it only lags for links *we* open).
-    private func startHostLinkPoll() {
-        guard hostLinkPoll == nil else { return }
-        let timer = Timer(timeInterval: Self.hostLinkPollInterval, repeats: true) { [weak self] _ in self?.pollHostLink() }
-        timer.tolerance = 0.5
-        RunLoop.main.add(timer, forMode: .common)
-        hostLinkPoll = timer
-    }
-
-    private func pollHostLink() {
+    /// Watches the target for links the host brings up. The watch is a disconnect notification
+    /// on a device object held for as long as the target stays the same: it is the only signal
+    /// macOS gives this process about such a link, and it comes when the link drops.
+    private func watchTargetForHostLinks() {
+        hostLinkWatch?.unregister()
+        hostLinkWatch = nil
+        watchedTarget = nil
         guard let address = targetAddress, let target = IOBluetoothDevice(addressString: address) else { return }
-        let isUp = target.isConnected()
-        defer { wasTargetLinkUp = isUp }
-        guard isUp, !wasTargetLinkUp, !isOutboundInFlight, !isConnected, !isPaused, target.isPaired() else { return }
-        log.notice("host \(address, privacy: .public) brought up a link")
-        delegate?.transportHostCameIntoRange(self, hostAddress: address, hostName: target.name)
+        watchedTarget = target
+        hostLinkWatch = target.register(forDisconnectNotification: self, selector: #selector(targetLinkDropped(_:device:)))
+        log.notice("watching \(address, privacy: .public) for links the host brings up (registered: \(self.hostLinkWatch != nil, privacy: .public))")
+    }
+
+    @objc private func targetLinkDropped(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
+        // While an attempt or a link of ours exists, its own watcher deals with the drop.
+        guard !isOutboundInFlight, controlChannel == nil, interruptChannel == nil else { return }
+        guard hostLinkDrops.isHostLinkDrop(at: Date().timeIntervalSince1970) else {
+            log.info("link drop after releasing our own link; not a cue")
+            return
+        }
+        guard !isPaused, device.isPaired(), let address = targetAddress else { return }
+        log.notice("a link the host \(address, privacy: .public) brought up has dropped; it asked for its keyboard")
+        delegate?.transportHostCameIntoRange(self, hostAddress: address, hostName: device.name)
     }
 
     private func openOutbound(psm: UInt16, linkKnownUp: Bool = false) {
@@ -216,6 +277,7 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         guard linkKnownUp || device.isConnected() else { return fail(.linkClosed) }
         var channel: IOBluetoothL2CAPChannel?
         let status = device.openL2CAPChannelAsync(&channel, withPSM: BluetoothL2CAPPSM(psm), delegate: self)
+        log.notice("step \(self.elapsed, privacy: .public): channel 0x\(String(psm, radix: 16), privacy: .public) requested (status \(status, privacy: .public))")
         guard status == kIOReturnSuccess, let channel else {
             return fail(.channelOpenFailed(psm: psm, code: status))
         }
@@ -242,7 +304,8 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         guard isResettingLink, isOutboundInFlight, let device else { return }
         if !device.isConnected() || remaining <= 0 {
             isResettingLink = false
-            log.notice("reconnecting on a fresh baseband link")
+            isLinkEstablished = false
+            log.notice("step \(self.elapsed, privacy: .public): reconnecting on a fresh baseband link")
             let status = device.openConnection(self)
             if status != kIOReturnSuccess { fail(.connectionFailed(code: status)) }
             return
@@ -257,7 +320,13 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         guard !isResettingLink else { return }
         guard InboundPolicy.isSameHost(device.addressString, self.device?.addressString),
               isOutboundInFlight || controlChannel != nil || interruptChannel != nil else { return }
-        log.notice("baseband link to \(device.addressString ?? "?", privacy: .public) dropped")
+        // The notification for the previous link can arrive seconds late, after the next attempt
+        // began; it killed attempts whose own link was still coming up.
+        guard isLinkEstablished else {
+            log.notice("step \(self.elapsed, privacy: .public): disconnect notification for an earlier link ignored")
+            return
+        }
+        log.notice("step \(self.elapsed, privacy: .public): baseband link to \(device.addressString ?? "?", privacy: .public) dropped")
         fail(.linkClosed)
     }
 
@@ -295,7 +364,7 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         let address = device?.addressString ?? targetAddress ?? "?"
         let name = device?.name
         targetAddress = address
-        log.notice("HID link up with \(address, privacy: .public)")
+        log.notice("step \(self.elapsed, privacy: .public): HID link up with \(address, privacy: .public)")
         delegate?.transportDidConnect(self, hostAddress: address, hostName: name)
     }
 
@@ -310,9 +379,22 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
     }
 
     private func fail(_ error: HIDTransportError) {
-        log.error("link failed: \(error.localizedDescription, privacy: .public)")
+        log.error("step \(self.elapsed, privacy: .public): link failed: \(error.localizedDescription, privacy: .public)")
+        let host = device
         closeChannels()
+        releaseBasebandLink(of: host)
         delegate?.transportDidDisconnect(self, error: error)
+    }
+
+    /// Drops the baseband link after the HID channels are gone. Left alone it lingers for about
+    /// 15 s: both Bluetooth settings keep saying "connected" although no keyboard is served, and
+    /// the next attempt starts on a link that is about to disappear under it.
+    private func releaseBasebandLink(of host: IOBluetoothDevice?) {
+        guard let host else { return }
+        hostLinkDrops.expectOwnDrop(at: Date().timeIntervalSince1970)
+        let started = Date()
+        let status = host.closeConnection()
+        log.notice("baseband link released (status \(status, privacy: .public), \(String(format: "%.2f", Date().timeIntervalSince(started)), privacy: .public)s)")
     }
 
     /// Closes channels but keeps the SDP record and the incoming listeners.
@@ -321,12 +403,15 @@ public final class ClassicHIDTransport: NSObject, HIDTransport {
         watchdog = nil
         graceWork?.cancel()
         graceWork = nil
+        settleWork?.cancel()
+        settleWork = nil
         resetPoll?.cancel()
         resetPoll = nil
         isResettingLink = false
         aclDisconnectNotification?.unregister()
         aclDisconnectNotification = nil
         isOutboundInFlight = false
+        isLinkEstablished = false
         hasNotifiedConnect = false
         let channels = [interruptChannel, controlChannel]
         interruptChannel = nil
@@ -389,9 +474,12 @@ extension ClassicHIDTransport: IOBluetoothL2CAPChannelDelegate {
     public func l2capChannelOpenComplete(_ channel: IOBluetoothL2CAPChannel!, status error: IOReturn) {
         guard role(of: channel) != nil else { return }
         let psm = UInt16(channel.psm)
+        log.notice("step \(self.elapsed, privacy: .public): channel 0x\(String(psm, radix: 16), privacy: .public) open complete (status \(error, privacy: .public))")
         guard error == kIOReturnSuccess else {
             return fail(.channelOpenFailed(psm: psm, code: error))
         }
+        // An open channel proves the link, however it came up.
+        isLinkEstablished = true
         openPSMs.insert(psm)
         if psm == SDPRecordBuilder.controlPSM, isOutboundInFlight, interruptChannel == nil {
             openOutbound(psm: SDPRecordBuilder.interruptPSM)
@@ -409,6 +497,7 @@ extension ClassicHIDTransport: IOBluetoothL2CAPChannelDelegate {
 
     public func l2capChannelWriteComplete(_ channel: IOBluetoothL2CAPChannel!, refcon: UnsafeMutableRawPointer!, status error: IOReturn) {
         refcon?.assumingMemoryBound(to: UInt8.self).deallocate()
+        writesCompleted += 1
         if error != kIOReturnSuccess {
             log.error("async write failed on PSM \(channel.psm, privacy: .public): \(error, privacy: .public)")
         }
@@ -416,7 +505,10 @@ extension ClassicHIDTransport: IOBluetoothL2CAPChannelDelegate {
 
     public func l2capChannelClosed(_ channel: IOBluetoothL2CAPChannel!) {
         guard role(of: channel) != nil else { return }
-        log.notice("PSM \(channel.psm, privacy: .public) closed by host")
-        fail(.linkClosed)
+        // Channels that close while the link stays up were closed by the host on purpose; when
+        // the link is gone (or its state is unknown) this is treated as a lost link.
+        let isLinkStillUp = hasNotifiedConnect && (device?.isConnected() ?? false)
+        log.notice("PSM \(channel.psm, privacy: .public) closed by host (link still up: \(isLinkStillUp, privacy: .public))")
+        fail(isLinkStillUp ? .hostClosed : .linkClosed)
     }
 }

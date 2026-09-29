@@ -17,11 +17,20 @@ public enum SessionEvent: Equatable, Sendable {
     case stopRequested
 }
 
+/// What happens after a link is lost, so the overlay can say what the user should expect.
+public enum DisconnectFollowUp: Equatable, Sendable {
+    case none
+    case retrying(seconds: Int)
+    case waitingForUser
+    case hostClosed
+}
+
 public enum HUDMessage: Equatable, Sendable {
+    case connecting(isFirstConnection: Bool)
     case connected
     case remote
     case local
-    case disconnected
+    case disconnected(DisconnectFollowUp)
     case pairedNewHost(String)
 }
 
@@ -66,10 +75,10 @@ public struct SessionStateMachine: Sendable {
             return [.sendAllUp, .unlockCursor, .showHUD(.local)]
         case (.connectedRemote, .transportDisconnected):
             state = .disconnected
-            return [.unlockCursor, .showHUD(.disconnected)]
+            return [.unlockCursor, .showHUD(.disconnected(.none))]
         case (.connectedLocal, .transportDisconnected), (.connecting, .transportDisconnected):
             state = .disconnected
-            return [.showHUD(.disconnected)]
+            return [.showHUD(.disconnected(.none))]
         case (.connectedRemote, .stopRequested):
             state = .idle
             return [.sendAllUp, .unlockCursor]

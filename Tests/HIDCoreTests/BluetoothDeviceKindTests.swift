@@ -30,3 +30,35 @@ final class BluetoothDeviceKindTests: XCTestCase {
         XCTAssertFalse(BluetoothDeviceKind.audio.canHostKeyboard)
     }
 }
+
+final class HostCandidacyTests: XCTestCase {
+    func testAMissingClassOfDeviceIsUnknownNotOther() {
+        // A host that started the pairing itself leaves no class of device in the local record.
+        XCTAssertEqual(BluetoothDeviceKind(classOfDevice: 0), .unknown)
+        XCTAssertFalse(BluetoothDeviceKind.unknown.canHostKeyboard)
+    }
+
+    func testComputersAreAlwaysCandidates() {
+        for familiarity in [HostFamiliarity.new, .returning, .repaired, .untried] {
+            XCTAssertTrue(BluetoothDeviceKind.desktop.isHostCandidate(familiarity: familiarity))
+        }
+    }
+
+    func testAnUnknownDeviceIsACandidateOnceItWasPairedOrServedUnderTheAppsEyes() {
+        XCTAssertTrue(BluetoothDeviceKind.unknown.isHostCandidate(familiarity: .new))
+        XCTAssertTrue(BluetoothDeviceKind.unknown.isHostCandidate(familiarity: .repaired))
+        XCTAssertTrue(BluetoothDeviceKind.unknown.isHostCandidate(familiarity: .returning))
+    }
+
+    func testAnUnknownDeviceThatWasAlwaysThereIsNotOffered() {
+        // Phones, tablets and watches paired through iCloud have no class of device either.
+        XCTAssertFalse(BluetoothDeviceKind.unknown.isHostCandidate(familiarity: .untried))
+        XCTAssertFalse(BluetoothDeviceKind.unknown.isHostCandidate(familiarity: .unpaired))
+    }
+
+    func testDevicesOfAKnownOtherClassAreNeverCandidates() {
+        for kind in [BluetoothDeviceKind.keyboard, .pointer, .audio, .phone, .other] {
+            XCTAssertFalse(kind.isHostCandidate(familiarity: .new))
+        }
+    }
+}

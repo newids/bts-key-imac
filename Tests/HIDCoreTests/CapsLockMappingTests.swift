@@ -34,8 +34,9 @@ final class CapsLockMappingTests: XCTestCase {
         XCTAssertEqual(CapsLockMapping.capsLock.reports(isDown: false, state: &state), [KeyboardReport()])
     }
 
-    func testDefaultIsGlobeAndRawValuesRoundTrip() {
-        XCTAssertEqual(CapsLockMapping.defaultMapping, .globe)
+    func testDefaultPassesCapsLockThroughAndRawValuesRoundTrip() {
+        // The host's own modifier remap for this keyboard is what switches the input source.
+        XCTAssertEqual(CapsLockMapping.defaultMapping, .capsLock)
         for mapping in CapsLockMapping.allCases {
             XCTAssertEqual(CapsLockMapping(rawValue: mapping.rawValue), mapping)
         }

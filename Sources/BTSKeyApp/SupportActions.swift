@@ -1,4 +1,5 @@
 import AppKit
+import HIDCore
 import ServiceManagement
 import os
 
@@ -69,6 +70,9 @@ enum SupportActions {
         macOS \(ProcessInfo.processInfo.operatingSystemVersionString)
         생성 \(Date())
 
+        이 파일에는 연결했던 컴퓨터의 이름과 블루투스 주소가 들어 있습니다. 다른 사람에게 보내기 전에 내용을 확인하세요.
+        키보드로 입력한 내용, 그리고 컴퓨터가 아닌 블루투스 기기(이어폰, 휴대폰 등)는 기록하지 않습니다.
+
         [설정]
         \(settingsSummary)
 
@@ -76,11 +80,28 @@ enum SupportActions {
 
         """
         text += run("/usr/bin/log", ["show", "--last", "2h", "--predicate", "subsystem == \"btskey\"", "--style", "compact"])
-        text += "\n[Bluetooth 장치]\n\n"
-        text += run("/usr/sbin/system_profiler", ["SPBluetoothDataType", "-detailLevel", "mini"])
+        text += "\n[페어링된 컴퓨터]\n\n"
+        text += pairedComputerInventory()
         try text.write(to: url, atomically: true, encoding: .utf8)
         NSWorkspace.shared.activateFileViewerSelecting([url])
         return url
+    }
+
+    /// Only computers, the devices this app can serve. The system's own Bluetooth report lists
+    /// every device the user owns, with serial numbers, which has no place in a file that is
+    /// meant to be sent to someone else.
+    private static func pairedComputerInventory() -> String {
+        do {
+            let records = try PairedDeviceLister.list()
+            let computers = records.filter { $0.kind.canHostKeyboard }
+            let lines = computers.map { record in
+                "\(PairedDeviceWatcher.resolvedName(record.name) ?? "(이름 없음)")  \(record.address)  \(record.kind.rawValue)"
+            }
+            let listed = lines.isEmpty ? "(없음)" : lines.joined(separator: "\n")
+            return listed + "\n그 밖의 페어링 기기 \(records.count - computers.count)대 (기록하지 않음)\n"
+        } catch {
+            return "(목록을 읽지 못했습니다: \(error.localizedDescription))\n"
+        }
     }
 
     private static func run(_ path: String, _ arguments: [String]) -> String {

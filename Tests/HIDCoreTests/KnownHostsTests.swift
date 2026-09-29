@@ -15,7 +15,7 @@ final class KnownHostsTests: XCTestCase {
     func testKeepsOnlyTheMostRecentEntriesUpToTheLimit() {
         var hosts = KnownHosts(limit: 2)
         for i in 0..<5 {
-            hosts.record(address: "00-00-00-00-00-0\(i)", name: "h\(i)", kind: .desktop, at: Double(i))
+            hosts.record(address: "00-00-00-00-00-0\(i)", name: "h\(i)", kind: .desktop, at: Double(i + 1))   // 0 means never served
         }
         XCTAssertEqual(hosts.entries.map(\.name), ["h4", "h3"])
     }
@@ -33,6 +33,23 @@ final class KnownHostsTests: XCTestCase {
         let data = try hosts.encoded()
         let decoded = try KnownHosts(encoded: data)
         XCTAssertEqual(decoded.entries, hosts.entries)
+    }
+
+    func testAHostListedAtPairingTimeHasNotServedUntilItsFirstLink() {
+        var hosts = KnownHosts()
+        hosts.record(address: "00-00-00-00-00-01", name: "new iMac", kind: .desktop, at: KnownHost.neverServed)
+        XCTAssertEqual(hosts.entries.first?.hasServed, false)
+        hosts.record(address: "00-00-00-00-00-01", name: "new iMac", kind: .desktop, at: 500)
+        XCTAssertEqual(hosts.entries.first?.hasServed, true)
+        XCTAssertEqual(hosts.entries.count, 1)
+    }
+
+    func testAFreshlyPairedHostIsNotPushedOutByAFullHistory() {
+        var hosts = KnownHosts(limit: 2)
+        hosts.record(address: "00-00-00-00-00-01", name: "old", kind: .desktop, at: 100)
+        hosts.record(address: "00-00-00-00-00-02", name: "older", kind: .desktop, at: 50)
+        hosts.record(address: "00-00-00-00-00-03", name: "new iMac", kind: .desktop, at: KnownHost.neverServed)
+        XCTAssertEqual(hosts.entries.map(\.name), ["new iMac", "old"])
     }
 
     func testCorruptDataYieldsEmptyStoreInsteadOfCrashing() {

@@ -1,17 +1,20 @@
-/// What the MacBook's Caps Lock key becomes on the iMac.
+/// What the MacBook's Caps Lock key becomes on the host.
 ///
-/// Mac hosts remap modifier keys per keyboard, so an iMac set to "Caps Lock → 🌐" does not
-/// apply that to a newly seen keyboard. Converting on the MacBook side avoids needing any
-/// setting on the (managed) iMac.
+/// Measured on an iMac running macOS 15.7.4 (2026-09-29; see `docs/input-source-switching.md`):
+/// the host treats this keyboard as a generic Bluetooth keyboard, so it drops the Apple Fn
+/// byte, and what switches 한/영 is the host's own modifier remap for this keyboard
+/// (Modifier Keys → select this Mac → Caps Lock → 🌐 fn). That remap needs Caps Lock to
+/// arrive as Caps Lock, which is why passing it through is the default.
 public enum CapsLockMapping: String, CaseIterable, Sendable {
-    /// Hold the Fn/🌐 key: works with "Press 🌐 to change input source" (Sequoia default).
-    case globe
-    /// Tap ⌃Space, the "Select the previous input source" shortcut.
-    case controlSpace
-    /// Send Caps Lock itself.
+    /// Send Caps Lock itself and let the host's modifier remap turn it into 🌐.
     case capsLock
+    /// Hold the Fn/🌐 key, sent as the Apple vendor Fn byte. Only hosts that mark this keyboard
+    /// as an Apple one honour it; the app has no say in that.
+    case globe
+    /// Tap ⌃Space, the "Select the previous input source" shortcut, where the host still has it.
+    case controlSpace
 
-    public static let defaultMapping = CapsLockMapping.globe
+    public static let defaultMapping = CapsLockMapping.capsLock
 
     private static let capsLockUsage: UInt8 = 0x39
     private static let spaceUsage: UInt8 = 0x2C

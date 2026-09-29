@@ -3,7 +3,7 @@
 /// A fixed short interval made every retry page the host and bring up a fresh
 /// ACL link that the host then dropped as idle, so the link flapped constantly.
 /// Endless retries against a host that keeps refusing also kept the app busy in
-/// IOBluetooth, so after `maximumAttempts` the app waits for the host or the user.
+/// IOBluetooth, so after `maximumAttempts` the app waits for the user.
 public struct ReconnectPolicy: Sendable {
     public let initialDelay: Double
     public let maximumDelay: Double
@@ -16,10 +16,11 @@ public struct ReconnectPolicy: Sendable {
         self.maximumAttempts = maximumAttempts
     }
 
-    /// What the app uses without the user asking: 4 s, 8 s, 10 s, then it stops and waits
-    /// for the host or an explicit "connect now". A host that refuses three times in a row
-    /// is asleep, unpaired, or busy with another keyboard; paging it further only costs battery.
-    public static let unattended = ReconnectPolicy(initialDelay: 4, maximumDelay: 10, maximumAttempts: 3)
+    /// What the app does without the user asking: one retry after 4 s, then it stops and waits
+    /// for an explicit "connect now". Every attempt pages the host and keeps this Mac's radio
+    /// busy for seconds, which the user feels on every other Bluetooth device; a host that
+    /// refused twice is asleep, unpaired, or busy, and paging it again changes nothing.
+    public static let unattended = ReconnectPolicy(initialDelay: 4, maximumDelay: 4, maximumAttempts: 1)
 
     public var isExhausted: Bool { attempt >= maximumAttempts }
 
