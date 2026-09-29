@@ -147,7 +147,8 @@ final class PairedDeviceWatcher: NSObject {
             onRemoved?(address)
         }
         for device in current where change.added.contains(device.address) && !computers.contains(device) {
-            log.notice("pairing added but not a host: \(device.name, privacy: .public) (\(String(describing: device.kind), privacy: .public))")
+            // No name here: this is one of the user's other devices and the log can end up in a diagnostics file.
+            log.notice("pairing added but not a host (\(String(describing: device.kind), privacy: .public))")
         }
         let added = computers.filter { change.added.contains($0.address) }
         guard !added.isEmpty else { return }
