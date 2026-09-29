@@ -9,7 +9,9 @@ echo 0.2.0 > VERSION            # 버전 올리기
 ./scripts/build-dmg.sh          # build/BTSKey-<버전>.dmg 와 .sha256
 ```
 
-`build-dmg.sh`는 `build-app.sh`를 먼저 실행한다. 이때 Apple 실리콘과 Intel 둘 다 들어간 실행 파일을 만든다(`UNIVERSAL=1`). `build-app.sh`만 실행하면 그 Mac용으로만 빌드한다. `build-app.sh`는 SwiftPM 릴리스 빌드 → `scripts/make-icon.swift`로 아이콘 렌더링(`build/AppIcon.icns`) → `Info.plist`(버전, 빌드 번호 = 커밋 수, 카테고리, 아이콘, 저작권) → 서명 순서다. DMG에는 앱, `Applications` 심볼릭 링크, `설치 안내.txt`가 들어간다.
+`build-dmg.sh`는 `build-app.sh`를 먼저 실행한다. 실행 파일은 Apple 실리콘(arm64) 전용이다. Intel Mac은 지원하지 않는다.
+
+**릴리스에 올리는 빌드는 반드시 `build-dmg.sh`로 만든다.** 이 스크립트는 배포용 서명(Developer ID, 없으면 ad-hoc)으로 서명하고, 포장하기 전에 세 가지를 검사해 하나라도 어긋나면 멈춘다: 서명이 배포용인지, 실행 파일이 arm64 전용인지, 실행 파일에 빌드 경로가 없는지. 개발용 인증서로 서명된 `build/BTSKey.app`을 직접 올리지 않는다. `build-app.sh`는 SwiftPM 릴리스 빌드 → `scripts/make-icon.swift`로 아이콘 렌더링(`build/AppIcon.icns`) → `Info.plist`(버전, 빌드 번호 = 커밋 수, 카테고리, 아이콘, 저작권) → 서명 순서다. DMG에는 앱, `Applications` 심볼릭 링크, `설치 안내.txt`가 들어간다.
 
 ## 서명과 공증
 
@@ -46,7 +48,7 @@ rm key.pem id.p12
 ## 웹사이트에 올릴 것
 
 - `build/BTSKey-<버전>.dmg`와 `.sha256`.
-- 다운로드 페이지 문구: 요구 사항(macOS 13 이상, Apple 실리콘·Intel 모두), 설치 4단계(`설치 안내.txt`와 같음), 첫 실행 안내가 앱 안에 있다는 점, 지원 연락처(`Sources/BTSKeyApp/AppInfo.swift`의 주소).
+- 다운로드 페이지 문구: 요구 사항(macOS 13 이상, Apple 실리콘), 설치 4단계(`설치 안내.txt`와 같음), 첫 실행 안내가 앱 안에 있다는 점, 지원 연락처(`Sources/BTSKeyApp/AppInfo.swift`의 주소).
 - 앱 안의 "지원 웹사이트…"·"사용 방법 보기…"·"문제 해결 안내…" 링크는 `AppInfo.swift`의 URL을 가리킨다. 실제 웹사이트 주소가 정해지면 그 파일만 바꾼다.
 
 ## 배포 전 점검

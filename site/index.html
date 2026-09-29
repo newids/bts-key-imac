@@ -194,7 +194,7 @@ footer a { color: var(--ink-2); }
         </a>
         <a class="btn btn-ghost" href="https://github.com/newids/bts-key-imac">GitHub에서 보기</a>
       </div>
-      <p class="meta" id="meta">macOS 13 이상 · Apple 실리콘·Intel · 무료, MIT</p>
+      <p class="meta" id="meta">macOS 13 이상 · Apple 실리콘 · 무료, MIT</p>
     </div>
     <div class="mock" aria-hidden="true">
       <div class="bar"><span class="key">⌨</span><span>🔵</span><span>9월 27일 (일) 오후 2:47</span></div>
@@ -235,7 +235,7 @@ footer a { color: var(--ink-2); }
   <div class="wrap">
     <div class="head">
       <div><p class="eyebrow">설치</p><h2 id="install-title">내려받아 끌어 놓으면 끝</h2></div>
-      <p>요구 사항: macOS 13 Ventura 이상(Apple 실리콘·Intel), 블루투스. iMac 쪽은 블루투스만 있으면 어느 macOS든 됩니다.</p>
+      <p>요구 사항: macOS 13 Ventura 이상(Apple 실리콘 Mac), 블루투스. iMac 쪽은 블루투스만 있으면 어느 macOS든 됩니다.</p>
     </div>
     <div class="steps">
       <div class="step"><div><h3>DMG 내려받기</h3><p>위의 <b>macOS용 다운로드</b> 버튼을 누르면 최신 버전 <code>BTSKey-&lt;버전&gt;.dmg</code>를 받습니다. 첨부된 <code>.sha256</code>으로 무결성을 확인할 수 있습니다.</p></div></div>
@@ -367,7 +367,7 @@ footer a { color: var(--ink-2); }
     if (dmg) {
       document.getElementById("download").href = dmg.browser_download_url;
       document.getElementById("download").querySelector("span").textContent = `macOS용 다운로드 · ${rel.tag_name}`;
-      document.getElementById("meta").textContent = `macOS 13 이상 · Apple 실리콘·Intel · ${(dmg.size / 1048576).toFixed(1)} MB · 무료, MIT`;
+      document.getElementById("meta").textContent = `macOS 13 이상 · Apple 실리콘 · ${(dmg.size / 1048576).toFixed(1)} MB · 무료, MIT`;
       document.getElementById("version").textContent = `최신 버전 ${rel.tag_name}`;
     }
   } catch (_) { /* offline or rate limited: the releases page link still works */ }

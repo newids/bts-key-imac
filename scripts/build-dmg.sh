@@ -6,10 +6,24 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # A disk image for other people is never signed with the development certificate of this Mac.
-DEV_IDENTITY="" UNIVERSAL=1 ./scripts/build-app.sh release
+DEV_IDENTITY="" ./scripts/build-app.sh release
 VERSION="${VERSION:-$(cat VERSION 2>/dev/null || echo 0.1.0)}"
 APP="build/BTSKey.app"
 STAGING="build/dmg"
+
+# What goes into a release is checked, not assumed: the distribution signature (a Developer ID,
+# or ad-hoc when there is none), Apple silicon only, and no trace of the Mac that built it.
+EXECUTABLE="$APP/Contents/MacOS/BTSKey"
+SIGNATURE="$(codesign -dvv "$APP" 2>&1)"
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  echo "$SIGNATURE" | grep -q "^Authority=$SIGN_IDENTITY" || { echo "error: the app is not signed with $SIGN_IDENTITY" >&2; exit 1; }
+else
+  echo "$SIGNATURE" | grep -q "^Signature=adhoc" || { echo "error: the app carries a signature that is not meant for distribution" >&2; exit 1; }
+fi
+[ "$(lipo -archs "$EXECUTABLE")" = "arm64" ] || { echo "error: the executable is not arm64 only" >&2; exit 1; }
+if LC_ALL=C strings - "$EXECUTABLE" | LC_ALL=C grep -q "/Users/"; then
+  echo "error: the executable contains build paths" >&2; exit 1
+fi
 DMG="build/BTSKey-${VERSION}.dmg"
 
 rm -rf "$STAGING" "$DMG"
