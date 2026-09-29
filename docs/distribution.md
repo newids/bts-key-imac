@@ -35,7 +35,8 @@ rm key.pem id.p12
 
 - `scripts/build-app.sh`는 `SIGN_IDENTITY`가 없고 키체인에 `BTSKey Dev`가 있으면 그것으로 서명한다. 다른 이름은 `DEV_IDENTITY`로 지정한다.
 - 인증서를 신뢰 설정하지 않아도 서명된다. `security find-identity`에는 `CSSMERR_TP_NOT_TRUSTED`로 나온다.
-- 이 서명은 이 Mac에서만 의미가 있다. 배포에는 Developer ID를 쓴다.
+- 이 서명은 이 Mac에서만 의미가 있다. 배포에는 Developer ID를 쓴다. `build-dmg.sh`는 이 인증서를 쓰지 않는다.
+- `build-app.sh`는 실행 파일에서 디버그 정보를 지운다(`strip -S -x`). 지우지 않으면 빌드한 계정의 경로가 실행 파일에 남는다.
 - 없애려면 키체인 접근에서 `BTSKey Dev` 인증서와 개인 키를 지운다. 그 뒤의 빌드는 ad-hoc으로 돌아간다.
 
 ## 웹사이트

@@ -23,6 +23,9 @@ fi
 rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/$APP_NAME"
+# The linker leaves the paths of the object files in the executable, and with them the name of
+# the account that built it. Nothing in a distributed app should say where it was built.
+strip -S -x "$OUT/Contents/MacOS/$APP_NAME"
 cp "$ICON" "$OUT/Contents/Resources/AppIcon.icns"
 
 cat > "$OUT/Contents/Info.plist" <<PLIST
@@ -54,12 +57,13 @@ PLIST
 #   SIGN_IDENTITY  a Developer ID, for distribution (hardened runtime, notarizable)
 #   DEV_IDENTITY   a self-signed certificate in the login keychain; the signature stays the same
 #                  across rebuilds, so Accessibility / Input Monitoring grants survive them
+#                  (set DEV_IDENTITY to an empty string to skip it, as build-dmg.sh does)
 #   ad-hoc         every rebuild is a new app to macOS and both grants must be given again
-DEV_IDENTITY="${DEV_IDENTITY:-BTSKey Dev}"
+DEV_IDENTITY="${DEV_IDENTITY-BTSKey Dev}"
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$OUT"
   SIGNED_WITH="$SIGN_IDENTITY"
-elif security find-identity -p codesigning 2>/dev/null | grep -q "\"$DEV_IDENTITY\""; then
+elif [ -n "$DEV_IDENTITY" ] && security find-identity -p codesigning 2>/dev/null | grep -q "\"$DEV_IDENTITY\""; then
   codesign --force --sign "$DEV_IDENTITY" --timestamp=none "$OUT"
   SIGNED_WITH="$DEV_IDENTITY (self-signed, this Mac only)"
 else
