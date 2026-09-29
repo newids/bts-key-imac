@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds BTSKey.app from the SwiftPM executable and signs it.
-# Ad-hoc signed unless SIGN_IDENTITY is set ("Developer ID Application: …"), in which case the
-# hardened runtime is enabled so the result can be notarized by build-dmg.sh.
+# With SIGN_IDENTITY ("Developer ID Application: …") the hardened runtime is enabled so the result
+# can be notarized by build-dmg.sh; see the signing section below for the other cases.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -50,9 +50,20 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Signing, in order of preference:
+#   SIGN_IDENTITY  a Developer ID, for distribution (hardened runtime, notarizable)
+#   DEV_IDENTITY   a self-signed certificate in the login keychain; the signature stays the same
+#                  across rebuilds, so Accessibility / Input Monitoring grants survive them
+#   ad-hoc         every rebuild is a new app to macOS and both grants must be given again
+DEV_IDENTITY="${DEV_IDENTITY:-BTSKey Dev}"
 if [ -n "${SIGN_IDENTITY:-}" ]; then
   codesign --force --sign "$SIGN_IDENTITY" --options runtime --timestamp "$OUT"
+  SIGNED_WITH="$SIGN_IDENTITY"
+elif security find-identity -p codesigning 2>/dev/null | grep -q "\"$DEV_IDENTITY\""; then
+  codesign --force --sign "$DEV_IDENTITY" --timestamp=none "$OUT"
+  SIGNED_WITH="$DEV_IDENTITY (self-signed, this Mac only)"
 else
   codesign --force --sign - --timestamp=none "$OUT"
+  SIGNED_WITH="ad-hoc"
 fi
-echo "built $OUT (version $VERSION build $BUILD_NUMBER)"
+echo "built $OUT (version $VERSION build $BUILD_NUMBER, signed: $SIGNED_WITH)"
