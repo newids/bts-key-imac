@@ -9,7 +9,7 @@ echo 0.2.0 > VERSION            # 버전 올리기
 ./scripts/build-dmg.sh          # build/BTSKey-<버전>.dmg 와 .sha256
 ```
 
-`build-dmg.sh`는 `build-app.sh`를 먼저 실행한다. `build-app.sh`는 SwiftPM 릴리스 빌드 → `scripts/make-icon.swift`로 아이콘 렌더링(`build/AppIcon.icns`) → `Info.plist`(버전, 빌드 번호 = 커밋 수, 카테고리, 아이콘, 저작권) → 서명 순서다. DMG에는 앱, `Applications` 심볼릭 링크, `설치 안내.txt`가 들어간다.
+`build-dmg.sh`는 `build-app.sh`를 먼저 실행한다. 이때 Apple 실리콘과 Intel 둘 다 들어간 실행 파일을 만든다(`UNIVERSAL=1`). `build-app.sh`만 실행하면 그 Mac용으로만 빌드한다. `build-app.sh`는 SwiftPM 릴리스 빌드 → `scripts/make-icon.swift`로 아이콘 렌더링(`build/AppIcon.icns`) → `Info.plist`(버전, 빌드 번호 = 커밋 수, 카테고리, 아이콘, 저작권) → 서명 순서다. DMG에는 앱, `Applications` 심볼릭 링크, `설치 안내.txt`가 들어간다.
 
 ## 서명과 공증
 

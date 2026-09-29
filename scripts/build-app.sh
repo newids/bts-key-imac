@@ -13,8 +13,14 @@ BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)
 OUT="build/${APP_NAME}.app"
 ICON="build/AppIcon.icns"
 
-swift build -c "$CONFIG" --product "$APP_NAME"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/${APP_NAME}"
+# UNIVERSAL=1 builds for Apple silicon and Intel (what build-dmg.sh ships); the default builds
+# for this Mac only, which is faster.
+ARCH_FLAGS=""
+if [ "${UNIVERSAL:-0}" = "1" ]; then ARCH_FLAGS="--arch arm64 --arch x86_64"; fi
+# shellcheck disable=SC2086
+swift build -c "$CONFIG" --product "$APP_NAME" $ARCH_FLAGS
+# shellcheck disable=SC2086
+BIN="$(swift build -c "$CONFIG" $ARCH_FLAGS --show-bin-path)/${APP_NAME}"
 
 if [ ! -f "$ICON" ] || [ scripts/make-icon.swift -nt "$ICON" ]; then
   swift scripts/make-icon.swift "$ICON"
