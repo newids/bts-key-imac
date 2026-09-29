@@ -260,6 +260,8 @@ Classic HID는 Windows 인박스 스택에 장치 역할 API가 없으므로 단
 
 1순위 요구가 macOS이므로 **A안**으로 시작하되, `HIDCore`를 Foundation 의존만으로 유지하고 전송·캡처를 프로토콜(인터페이스) 뒤에 둔다. Windows 필요가 확정되는 시점에 (a) `HIDCore`를 Swift on Windows로 그대로 빌드하거나, (b) 규모가 작은 코어(예상 1~2천 줄)를 C#으로 포팅해 windows-ble-hid와 결합한다. 어느 쪽이든 리포트 포맷과 상태 머신 사양은 이 문서를 단일 진실 원천으로 삼는다.
 
+> 2026-09-29 재검토: Windows 쪽은 C안(C#/.NET)을 권하고 `HIDCore`는 Swift 그대로 어느 플랫폼에서나 빌드되게 둔다. 근거와 빌드 방법은 `docs/windows-build.md`.
+
 ## 8. 리스크와 검증 스파이크 (구현 전 순서대로)
 
 | # | 상태 | 검증 항목 | 성공 기준 | 실패 시 대안 |

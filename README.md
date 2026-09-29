@@ -48,7 +48,7 @@ swift build && swift test          # 라이브러리 빌드와 단위 테스트
 - `Sources/InputCapture` — CGEvent 탭, Caps Lock 모니터, 커서 잠금, 단축키.
 - `Sources/BTSKeyApp` — 메뉴바 앱, 첫 실행 안내, 절전, 지원 기능.
 
-배포 절차(서명·공증 포함)는 [docs/distribution.md](docs/distribution.md)에 있습니다.
+배포 절차(서명·공증 포함)는 [docs/distribution.md](docs/distribution.md)에 있습니다. Windows용은 아직 없으며, 지금 빌드되는 부분과 만드는 경로는 [docs/windows-build.md](docs/windows-build.md)에, 파일·클립보드 전달 방법 조사는 [docs/data-transfer-research.md](docs/data-transfer-research.md)에 있습니다.
 
 ## 작업 내역
 
