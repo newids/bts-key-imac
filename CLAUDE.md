@@ -24,6 +24,8 @@ open build/BTSKey.app                         # run the menu bar app
 
 `build-app.sh` signs with the self-signed `BTSKey Dev` certificate when the login keychain has one (how to create it is in `docs/distribution.md`), so Accessibility / Input Monitoring grants survive rebuilds. Without it the app is ad-hoc signed and both grants must be given again in System Settings → Privacy & Security after each build. `SIGN_IDENTITY=... ./scripts/build-app.sh` uses a Developer ID for distribution.
 
+Release builds are made with `./scripts/build-dmg.sh` only, never by uploading `build/BTSKey.app` from a development build: the script signs for distribution (a Developer ID, else ad-hoc), builds for Apple silicon only (Intel Macs are not supported) and stops if the app has another signature, another architecture or build paths in the executable. Nothing that names a person, a device or a place goes into code, tests or documents; tests use `aa-aa-aa-aa-aa-01` and `iMac-A` style placeholders.
+
 Hardware tests are written down step by step, split into what the person does and what the program does, in `docs/test-scenarios.md`.
 
 ## Architecture
